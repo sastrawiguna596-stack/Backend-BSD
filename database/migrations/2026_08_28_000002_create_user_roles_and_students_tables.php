@@ -48,7 +48,7 @@ return new class extends Migration
             $table->string('school_name')->nullable();
             $table->string('school_grade')->nullable();
             $table->text('address')->nullable();
-            $table->string('status')->default('active');
+            $table->enum('status', ['active', 'trial', 'on_leave', 'inactive', 'graduated'])->default('trial');
             $table->timestamps();
         });
 
