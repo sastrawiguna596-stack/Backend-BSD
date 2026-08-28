@@ -1,0 +1,224 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "BSD After School Club",
+  "description": "Konfigurasi API Frontend untuk Sistem Informasi Bimbingan Belajar (Cek Jadwal, Monitoring Belajar, dan Pembayaran SPP/Paket via Xendit Payment Gateway).",
+  "version": "2.0.0",
+  "environment": {
+    "development": {
+      "baseUrl": "http://localhost:8000/api",
+      "timeout": 15000
+    },
+    "production": {
+      "baseUrl": "http://localhost:8000/api",
+      "timeout": 10000
+    }
+  },
+  "defaultHeaders": {
+    "Content-Type": "application/json",
+    "Accept": "application/json",
+    "Authorization": "Bearer {TOKEN_SLOT}"
+  },
+  "endpoints": {
+    "announcements": {
+      "list": {
+        "method": "GET",
+        "path": "/announcements",
+        "description": "Mengambil daftar pengumuman berserta URL poster / flyer gambar",
+        "response_slot": {
+          "success": true,
+          "data": [
+            {
+              "id": "uuid",
+              "title": "Pengumuman Tryout Nasional",
+              "description": "Detail deskripsi pengumuman",
+              "poster_url": "http://localhost:8000/storage/announcements/poster.jpg",
+              "published_at": "2026-08-28 09:00:00"
+            }
+          ]
+        }
+      },
+      "createWithUpload": {
+        "method": "POST",
+        "path": "/announcements",
+        "content_type": "multipart/form-data",
+        "description": "Upload pengumuman baru beserta file gambar Poster/Flyer",
+        "form_data_slot": {
+          "title": "Judul Pengumuman",
+          "description": "Deskripsi lengkap pengumuman",
+          "poster": "[FILE_GAMBAR_POSTER_JPG_PNG_MAX_5MB]",
+          "target_roles[]": "student"
+        }
+      }
+    },
+    "auth": {
+      "login": {
+        "method": "POST",
+        "path": "/auth/login",
+        "description": "Login akun Siswa atau Orang Tua / Wali murid",
+        "payload_slot": {
+          "email": "siswa@example.com",
+          "password": "password123"
+        },
+        "response_slot": {
+          "success": true,
+          "message": "Login berhasil",
+          "data": {
+            "token": "SLOT_BEARER_TOKEN_HERE",
+            "user": {
+              "id": 1,
+              "name": "Budi Santoso",
+              "role": "student",
+              "class_grade": "12 SMA IPA"
+            }
+          }
+        }
+      },
+      "register": {
+        "method": "POST",
+        "path": "/auth/register",
+        "description": "Pendaftaran akun siswa / wali murid baru",
+        "payload_slot": {
+          "name": "Budi Santoso",
+          "email": "siswa@example.com",
+          "phone": "081234567890",
+          "password": "password123",
+          "password_confirmation": "password123"
+        }
+      },
+      "profile": {
+        "method": "GET",
+        "path": "/auth/me",
+        "description": "Mengambil data profil siswa & info wali murid"
+      }
+    },
+    "schedules": {
+      "getStudentSchedule": {
+        "method": "GET",
+        "path": "/schedules/my-schedule",
+        "description": "Mengambil daftar jadwal les / kelas bimbingan belajar siswa",
+        "query_params_slot": {
+          "month": "08",
+          "year": "2026"
+        },
+        "response_slot": {
+          "success": true,
+          "data": [
+            {
+              "id": 101,
+              "subject": "Matematika IPA",
+              "tutor_name": "Dr. Ahmad Hidayat",
+              "date": "2026-08-28",
+              "time_start": "15:30",
+              "time_end": "17:00",
+              "room": "Ruang A2 / Zoom Online",
+              "status": "UPCOMING"
+            }
+          ]
+        }
+      },
+      "getAvailableClasses": {
+        "method": "GET",
+        "path": "/schedules/classes",
+        "description": "Melihat daftar kelas bimbel & mata pelajaran yang tersedia"
+      }
+    },
+    "monitoring": {
+      "getAttendance": {
+        "method": "GET",
+        "path": "/monitoring/attendance",
+        "description": "Mengecek riwayat kehadiran / presensi les siswa",
+        "response_slot": {
+          "success": true,
+          "summary": {
+            "total_hadir": 12,
+            "total_izin": 1,
+            "total_alpha": 0
+          },
+          "data": [
+            {
+              "date": "2026-08-25",
+              "subject": "Fisika",
+              "status": "HADIR",
+              "notes": "Hadir tepat waktu, aktif bertanya"
+            }
+          ]
+        }
+      },
+      "getReports": {
+        "method": "GET",
+        "path": "/monitoring/reports",
+        "description": "Melihat perkembangan nilai, evaluasi les, dan catatan dari tutor",
+        "response_slot": {
+          "success": true,
+          "data": [
+            {
+              "subject": "Matematika",
+              "latest_score": 92,
+              "evaluator": "Dr. Ahmad",
+              "feedback": "Pemahaman aljabar dan kalkulus sangat baik."
+            }
+          ]
+        }
+      }
+    },
+    "packages": {
+      "list": {
+        "method": "GET",
+        "path": "/packages",
+        "description": "Daftar paket bimbingan belajar (Bulanan, UN/UTBK, Privat)",
+        "response_slot": {
+          "success": true,
+          "data": [
+            {
+              "id": 1,
+              "name": "Paket Reguler Intensive UTBK 1 Bulan",
+              "price": 750000,
+              "duration": "1 Bulan",
+              "features": ["3x Pertemuan / Minggu", "Tryout Online", "Modul Belajar"]
+            }
+          ]
+        }
+      }
+    },
+    "payments": {
+      "createXenditInvoice": {
+        "method": "POST",
+        "path": "/payments/xendit/create-invoice",
+        "description": "Membuat Invoice Xendit untuk pembayaran SPP/Paket Bimbel. Mengembalikan invoice_url untuk pembayar via VA, QRIS, OVO, Dana, dll.",
+        "payload_slot": {
+          "package_id": 1,
+          "payer_email": "siswa@example.com",
+          "description": "Pembayaran SPP Bimbel Bulan September 2026"
+        },
+        "response_slot": {
+          "success": true,
+          "message": "Invoice Xendit berhasil dibuat",
+          "data": {
+            "external_id": "BIMBEL-INV-20260827-001",
+            "invoice_url": "https://checkout.xendit.co/web/66c00000000000000000000",
+            "amount": 750000,
+            "status": "PENDING",
+            "expiry_date": "2026-08-28T09:30:00.000Z"
+          }
+        }
+      },
+      "getInvoiceStatus": {
+        "method": "GET",
+        "path": "/payments/xendit/status/{external_id}",
+        "description": "Mengecek status pembayaran tagihan Xendit (PENDING / PAID / EXPIRED)",
+        "response_slot": {
+          "external_id": "BIMBEL-INV-20260827-001",
+          "status": "PAID",
+          "payment_method": "VIRTUAL_ACCOUNT",
+          "payment_channel": "BCA",
+          "paid_at": "2026-08-27T09:40:00.000Z"
+        }
+      },
+      "xenditCallbackWebhook": {
+        "method": "POST",
+        "path": "/payments/xendit/callback",
+        "description": "Endpoint Webhook/Callback untuk menerima HTTP notification otomatis dari Xendit ketika siswa membayar."
+      }
+    }
+  }
+}

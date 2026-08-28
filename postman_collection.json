@@ -1,0 +1,188 @@
+{
+	"info": {
+		"_postman_id": "api-bimbel-xendit-collection",
+		"name": "Bimbingan Belajar & Xendit Payment API Collection",
+		"description": "Postman Collection khusus Website Bimbingan Belajar (Cek Jadwal, Monitoring Presensi & Nilai, serta Pembayaran SPP via Xendit Payment Gateway).",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:8000/api",
+			"type": "string"
+		},
+		{
+			"key": "auth_token",
+			"value": "SLOT_BEARER_TOKEN_HERE",
+			"type": "string"
+		}
+	],
+	"item": [
+		{
+			"name": "Auth",
+			"item": [
+				{
+					"name": "Login Siswa / Wali",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"siswa@example.com\",\n  \"password\": \"password123\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/auth/login",
+							"host": ["{{base_url}}"],
+							"path": ["auth", "login"]
+						}
+					}
+				},
+				{
+					"name": "Get Profile Siswa",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Authorization", "value": "Bearer {{auth_token}}" }
+						],
+						"url": {
+							"raw": "{{base_url}}/auth/me",
+							"host": ["{{base_url}}"],
+							"path": ["auth", "me"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Cek Jadwal (Schedules)",
+			"item": [
+				{
+					"name": "Jadwal Les Siswa",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Authorization", "value": "Bearer {{auth_token}}" }
+						],
+						"url": {
+							"raw": "{{base_url}}/schedules/my-schedule?month=08&year=2026",
+							"host": ["{{base_url}}"],
+							"path": ["schedules", "my-schedule"],
+							"query": [
+								{ "key": "month", "value": "08" },
+								{ "key": "year", "value": "2026" }
+							]
+						}
+					}
+				},
+				{
+					"name": "Daftar Kelas Tersedia",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/schedules/classes",
+							"host": ["{{base_url}}"],
+							"path": ["schedules", "classes"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Memantau Progress (Monitoring)",
+			"item": [
+				{
+					"name": "Cek Kehadiran / Presensi",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Authorization", "value": "Bearer {{auth_token}}" }
+						],
+						"url": {
+							"raw": "{{base_url}}/monitoring/attendance",
+							"host": ["{{base_url}}"],
+							"path": ["monitoring", "attendance"]
+						}
+					}
+				},
+				{
+					"name": "Cek Evaluasi Nilai & Laporan Tutor",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Authorization", "value": "Bearer {{auth_token}}" }
+						],
+						"url": {
+							"raw": "{{base_url}}/monitoring/reports",
+							"host": ["{{base_url}}"],
+							"path": ["monitoring", "reports"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Paket & Pembayaran Xendit",
+			"item": [
+				{
+					"name": "Daftar Paket Les Bimbel",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"url": {
+							"raw": "{{base_url}}/packages",
+							"host": ["{{base_url}}"],
+							"path": ["packages"]
+						}
+					}
+				},
+				{
+					"name": "Buat Invoice Xendit (Bayar SPP / Paket)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Authorization", "value": "Bearer {{auth_token}}" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"package_id\": 1,\n  \"payer_email\": \"siswa@example.com\",\n  \"description\": \"Pembayaran SPP Bimbel Bulan September 2026\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/payments/xendit/create-invoice",
+							"host": ["{{base_url}}"],
+							"path": ["payments", "xendit", "create-invoice"]
+						}
+					}
+				},
+				{
+					"name": "Cek Status Invoice Xendit",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Accept", "value": "application/json" },
+							{ "key": "Authorization", "value": "Bearer {{auth_token}}" }
+						],
+						"url": {
+							"raw": "{{base_url}}/payments/xendit/status/BIMBEL-INV-20260827-001",
+							"host": ["{{base_url}}"],
+							"path": ["payments", "xendit", "status", "BIMBEL-INV-20260827-001"]
+						}
+					}
+				}
+			]
+		}
+	]
+}

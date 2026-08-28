@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BSD After School Club - API Tester</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: #1e293b;
+      --primary: #3b82f6;
+      --accent: #10b981;
+      --text: #f8fafc;
+      --subtext: #94a3b8;
+    }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      margin: 0;
+      padding: 20px;
+    }
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+    }
+    h1 {
+      color: var(--primary);
+      margin-bottom: 5px;
+    }
+    p {
+      color: var(--subtext);
+      margin-bottom: 25px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 15px;
+      margin-bottom: 25px;
+    }
+    .card {
+      background-color: var(--card);
+      border: 1px solid #334155;
+      border-radius: 8px;
+      padding: 15px;
+    }
+    .card h3 {
+      margin-top: 0;
+      color: #60a5fa;
+      font-size: 1rem;
+    }
+    .badge {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: bold;
+      margin-bottom: 10px;
+    }
+    .badge-post { background-color: #065f46; color: #34d399; }
+    .badge-get { background-color: #1e3a8a; color: #93c5fd; }
+    button {
+      background-color: var(--primary);
+      color: white;
+      border: none;
+      padding: 8px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: bold;
+      width: 100%;
+      transition: background 0.2s;
+    }
+    button:hover {
+      background-color: #2563eb;
+    }
+    button.xendit {
+      background-color: #059669;
+    }
+    button.xendit:hover {
+      background-color: #047857;
+    }
+    .response-area {
+      background-color: #020617;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      padding: 15px;
+    }
+    pre {
+      margin: 0;
+      white-space: pre-wrap;
+      font-family: monospace;
+      color: #a7f3d0;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>BSD After School Club - API Tester</h1>
+    <p>Halaman pengujian sederhana untuk tes endpoint API Laravel & Xendit Invoice Payment Gateway secara langsung.</p>
+
+    <div class="grid">
+      <!-- Auth Login -->
+      <div class="card">
+        <span class="badge badge-post">POST</span>
+        <h3>1. Test Auth Login</h3>
+        <p>Path: <code>/api/auth/login</code></p>
+        <button onclick="testLogin()">Jalankan Test Login</button>
+      </div>
+
+      <!-- Cek Jadwal -->
+      <div class="card">
+        <span class="badge badge-get">GET</span>
+        <h3>2. Test Cek Jadwal Les</h3>
+        <p>Path: <code>/api/schedules/my-schedule</code></p>
+        <button onclick="testSchedule()">Jalankan Test Jadwal</button>
+      </div>
+
+      <!-- Presensi Kehadiran -->
+      <div class="card">
+        <span class="badge badge-get">GET</span>
+        <h3>3. Test Monitoring Presensi</h3>
+        <p>Path: <code>/api/monitoring/attendance</code></p>
+        <button onclick="testAttendance()">Jalankan Test Presensi</button>
+      </div>
+
+      <!-- Payment Xendit Invoice -->
+      <div class="card">
+        <span class="badge badge-post">POST</span>
+        <h3>4. Test Invoice Xendit</h3>
+        <p>Path: <code>/api/payments/xendit/create-invoice</code></p>
+        <button class="xendit" onclick="testXenditInvoice()">Jalankan Test Xendit</button>
+      </div>
+    </div>
+
+    <div class="response-area">
+      <h3 style="margin-top:0; color:var(--subtext);">Hasil Output Respon API:</h3>
+      <pre id="output">// Klik salah satu tombol di atas untuk melihat respon JSON dari API server Anda...</pre>
+    </div>
+  </div>
+
+  <script type="module">
+    import apiConfig from './api_config.json' assert { type: 'json' };
+
+    const BASE_URL = apiConfig.environment.development.baseUrl;
+    const outputEl = document.getElementById('output');
+
+    function logResponse(title, data) {
+      outputEl.textContent = `=== ${title} ===\n` + JSON.stringify(data, null, 2);
+    }
+
+    window.testLogin = async function() {
+      outputEl.textContent = "Mengirim HTTP POST Request ke " + BASE_URL + "/auth/login ...";
+      try {
+        const res = await fetch(BASE_URL + "/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Accept": "application/json" },
+          body: JSON.stringify(apiConfig.endpoints.auth.login.payload_slot)
+        });
+        const data = await res.json();
+        logResponse("RESPON AUTH LOGIN", data);
+      } catch (err) {
+        logResponse("ERROR / OFFLINE SERVER", {
+          message: "Tidak dapat terhubung ke Laravel Backend di " + BASE_URL + ". Pastikan server aktif (`php artisan serve`).",
+          slot_demo: apiConfig.endpoints.auth.login.response_slot
+        });
+      }
+    };
+
+    window.testSchedule = async function() {
+      outputEl.textContent = "Mengirim HTTP GET Request ke " + BASE_URL + "/schedules/my-schedule ...";
+      try {
+        const res = await fetch(BASE_URL + "/schedules/my-schedule?month=08&year=2026", {
+          headers: { "Accept": "application/json", "Authorization": "Bearer TOKEN_DUMMY" }
+        });
+        const data = await res.json();
+        logResponse("RESPON JADWAL LES SISWA", data);
+      } catch (err) {
+        logResponse("ERROR / OFFLINE SERVER", {
+          message: "Tidak dapat terhubung ke Laravel Backend.",
+          slot_demo: apiConfig.endpoints.schedules.getStudentSchedule.response_slot
+        });
+      }
+    };
+
+    window.testAttendance = async function() {
+      outputEl.textContent = "Mengirim HTTP GET Request ke " + BASE_URL + "/monitoring/attendance ...";
+      try {
+        const res = await fetch(BASE_URL + "/monitoring/attendance", {
+          headers: { "Accept": "application/json", "Authorization": "Bearer TOKEN_DUMMY" }
+        });
+        const data = await res.json();
+        logResponse("RESPON PRESENSI KEHADIRAN", data);
+      } catch (err) {
+        logResponse("ERROR / OFFLINE SERVER", {
+          message: "Tidak dapat terhubung ke Laravel Backend.",
+          slot_demo: apiConfig.endpoints.monitoring.getAttendance.response_slot
+        });
+      }
+    };
+
+    window.testXenditInvoice = async function() {
+      outputEl.textContent = "Mengirim HTTP POST Request ke " + BASE_URL + "/payments/xendit/create-invoice ...";
+      try {
+        const res = await fetch(BASE_URL + "/payments/xendit/create-invoice", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Accept": "application/json" },
+          body: JSON.stringify(apiConfig.endpoints.payments.createXenditInvoice.payload_slot)
+        });
+        const data = await res.json();
+        logResponse("RESPON XENDIT INVOICE", data);
+      } catch (err) {
+        logResponse("ERROR / OFFLINE SERVER (SLOT DEMO DISPLAYED)", {
+          message: "Tidak dapat terhubung ke Laravel Backend. Menampilkan contoh format slot respon Xendit Invoice:",
+          slot_demo: apiConfig.endpoints.payments.createXenditInvoice.response_slot
+        });
+      }
+    };
+  </script>
+</body>
+</html>
