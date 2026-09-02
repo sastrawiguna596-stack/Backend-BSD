@@ -173,9 +173,15 @@ class ParentController extends Controller
             ], 422);
         }
 
-        $parent->students()->attach($studentId, [
+        // Insert manual dengan UUID karena pivot table punya kolom 'id' UUID
+        DB::table('parent_students')->insert([
+            'id'           => Str::uuid()->toString(),
+            'parent_id'    => $parentId,
+            'student_id'   => $studentId,
             'relationship' => $validated['relationship'] ?? null,
             'is_primary'   => $validated['is_primary'] ?? false,
+            'created_at'   => now(),
+            'updated_at'   => now(),
         ]);
 
         return response()->json([

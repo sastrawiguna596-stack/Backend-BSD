@@ -12,4 +12,14 @@ class ProgramLevel extends Model
 
     protected $table = 'program_levels';
     protected $guarded = [];
+
+    public function program()
+    {
+        return $this->belongsTo(Program::class);
+    }
+
+    public function classrooms()
+    {
+        return $this->hasMany(Classroom::class, 'program_level_id');
+    }
 }

@@ -16,4 +16,11 @@ class Teacher extends Model
     {
         return $this->belongsTo(User::class);
     }
+
+    public function classrooms()
+    {
+        return $this->belongsToMany(Classroom::class, 'class_teachers', 'teacher_id', 'classroom_id')
+                    ->withPivot('effective_from', 'effective_until', 'role')
+                    ->withTimestamps();
+    }
 }

@@ -24,4 +24,20 @@ class Student extends Model
                     ->withPivot('relationship', 'is_primary')
                     ->withTimestamps();
     }
+
+    public function enrollments()
+    {
+        return $this->hasMany(Enrollment::class);
+    }
+
+    /**
+     * Hitung jumlah program aktif yang diikuti siswa ini.
+     */
+    public function activeProgramsCount(): int
+    {
+        return $this->enrollments()
+            ->where('status', 'active')
+            ->distinct('program_id')
+            ->count('program_id');
+    }
 }

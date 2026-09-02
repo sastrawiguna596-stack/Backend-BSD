@@ -76,6 +76,10 @@ Route::prefix('v1')->group(function () {
 
             // --- Master Data Lainnya ---
             Route::apiResource('classrooms', ClassroomController::class);
+            // Assign / lepas guru dari kelas
+            Route::post('classrooms/{classroom}/teachers',            [ClassroomController::class, 'assignTeacher']);
+            Route::delete('classrooms/{classroom}/teachers/{teacher}', [ClassroomController::class, 'removeTeacher']);
+
             Route::apiResource('holidays', HolidayController::class);
             Route::apiResource('inventories', InventoryController::class);
             Route::apiResource('payment-plans', PaymentPlanController::class);
@@ -92,6 +96,10 @@ Route::prefix('v1')->group(function () {
 
         // --- Akademik & Kelas ---
         Route::apiResource('programs', ProgramController::class);
+        // Level management (nested di bawah program)
+        Route::post('programs/{program}/levels',          [ProgramController::class, 'storeLevel']);
+        Route::put('programs/{program}/levels/{level}',   [ProgramController::class, 'updateLevel']);
+        Route::delete('programs/{program}/levels/{level}', [ProgramController::class, 'destroyLevel']);
         Route::apiResource('enrollments', EnrollmentController::class);
         Route::apiResource('class-sessions', ClassSessionController::class);
         Route::apiResource('class-schedules', ClassScheduleController::class);
