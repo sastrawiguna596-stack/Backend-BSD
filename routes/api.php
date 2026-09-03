@@ -42,7 +42,9 @@ Route::prefix('v1')->group(function () {
     Route::post('/auth/login',    [AuthController::class, 'login']);
     Route::post('/auth/register', [AuthController::class, 'register']);
     Route::get('/announcements',  [AnnouncementController::class, 'index']);
-    Route::post('/payments/xendit/callback', [PaymentController::class, 'xenditCallback']);
+
+    // Webhook Payment Gateway 
+    Route::post('/payments/webhook', [PaymentController::class, 'webhook']);
 
     // ==========================================
     // 2. PROTECTED ROUTES (Harus Login / Token)
@@ -112,7 +114,9 @@ Route::prefix('v1')->group(function () {
         Route::apiResource('final-reports', FinalReportController::class);
         Route::apiResource('certificates', CertificateController::class);
 
-        // --- Keuangan ---
+        // --- Keuangan & Pembayaran Digital ---
+        Route::post('payments/charge', [PaymentController::class, 'charge']);
+        Route::get('payments/{payment}/status', [PaymentController::class, 'checkStatus']);
         Route::apiResource('payments', PaymentController::class);
 
     }); // End auth:sanctum

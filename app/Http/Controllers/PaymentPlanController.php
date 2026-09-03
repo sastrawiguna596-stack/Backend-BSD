@@ -214,7 +214,7 @@ class PaymentPlanController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Tagihan berhasil diperbarui.',
-            'data'    => $paymentPlan->fresh(['enrollment.student']),
+            'data'    => $paymentPlan->fresh(['enrollment.student', 'enrollment.program']),
         ]);
     }
 

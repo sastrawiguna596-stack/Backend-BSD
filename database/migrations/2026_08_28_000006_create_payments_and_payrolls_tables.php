@@ -26,12 +26,21 @@ return new class extends Migration
             $table->foreignUuid('enrollment_id')->constrained('enrollments')->onDelete('cascade');
             $table->foreignUuid('student_id')->constrained('students')->onDelete('cascade');
             $table->decimal('amount', 12, 2);
-            $table->string('payment_method');
-            $table->string('payment_status')->default('pending');
+            $table->decimal('fee', 12, 2)->default(0);
+            $table->decimal('total_amount', 12, 2);
+            $table->string('payment_method'); // va, qris, ewallet, cash
+            $table->string('payment_channel')->nullable(); // bca_va, bni_va, qris, gopay, dll
+            $table->string('provider')->nullable(); // generic / zannstore / xendit / midtrans
+            $table->string('reference_number')->nullable(); // external invoice / trx id from gateway
+            $table->string('virtual_account')->nullable();
+            $table->text('qr_content')->nullable();
+            $table->string('qr_url')->nullable();
+            $table->string('checkout_url')->nullable();
+            $table->string('payment_status')->default('pending'); // pending, paid, expired, failed
             $table->dateTime('paid_at')->nullable();
+            $table->dateTime('expired_at')->nullable();
             $table->foreignUuid('created_by')->nullable()->constrained('users')->onDelete('set null');
             $table->foreignUuid('verified_by')->nullable()->constrained('users')->onDelete('set null');
-            $table->string('reference_number')->nullable();
             $table->text('notes')->nullable();
             $table->timestamps();
         });
