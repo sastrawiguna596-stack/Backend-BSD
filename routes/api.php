@@ -82,6 +82,7 @@ Route::prefix('v1')->group(function () {
 
             Route::apiResource('holidays', HolidayController::class);
             Route::apiResource('inventories', InventoryController::class);
+            Route::post('payment-plans/generate', [PaymentPlanController::class, 'generateForEnrollment']);
             Route::apiResource('payment-plans', PaymentPlanController::class);
             Route::apiResource('teacher-payrolls', TeacherPayrollController::class);
 
