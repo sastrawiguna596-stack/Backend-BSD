@@ -24,6 +24,7 @@ use App\Http\Controllers\CertificateController;
 
 use App\Http\Controllers\PaymentPlanController;
 use App\Http\Controllers\PaymentController;
+use App\Http\Controllers\CashTransactionController;
 use App\Http\Controllers\TeacherPayrollController;
 
 use App\Http\Controllers\AnnouncementController;
@@ -88,6 +89,10 @@ Route::prefix('v1')->group(function () {
             Route::apiResource('payment-plans', PaymentPlanController::class);
             Route::apiResource('teacher-payrolls', TeacherPayrollController::class);
 
+            // --- Verifikasi Pembayaran Tunai (Admin / Owner Only) ---
+            Route::post('cash-transactions/{cashTransaction}/confirm', [CashTransactionController::class, 'confirm']);
+            Route::post('cash-transactions/{cashTransaction}/reject',  [CashTransactionController::class, 'reject']);
+
             // --- Pengumuman (Write) ---
             Route::post('/announcements', [AnnouncementController::class, 'store']);
             Route::apiResource('announcements', AnnouncementController::class)->except(['index', 'store']);
@@ -118,6 +123,11 @@ Route::prefix('v1')->group(function () {
         Route::post('payments/charge', [PaymentController::class, 'charge']);
         Route::get('payments/{payment}/status', [PaymentController::class, 'checkStatus']);
         Route::apiResource('payments', PaymentController::class);
+
+        // --- Transaksi Tunai (Cash Payment) ---
+        Route::get('cash-transactions',          [CashTransactionController::class, 'index']);
+        Route::get('cash-transactions/{id}',     [CashTransactionController::class, 'show']);
+        Route::post('cash-transactions/submit',  [CashTransactionController::class, 'submit']);
 
     }); // End auth:sanctum
 });

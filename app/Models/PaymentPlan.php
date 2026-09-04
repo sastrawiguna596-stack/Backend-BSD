@@ -53,5 +53,10 @@ class PaymentPlan extends Model
     {
         return $this->hasMany(Payment::class);
     }
+
+    public function cashTransactions()
+    {
+        return $this->hasMany(CashTransaction::class, 'payment_plan_id');
+    }
 }
 
