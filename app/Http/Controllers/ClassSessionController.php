@@ -3,7 +3,10 @@
 namespace App\Http\Controllers;
 
 use App\Models\ClassSession;
+use App\Models\StudentAttendance;
+use App\Models\TeacherLogbook;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
 
 class ClassSessionController extends Controller
@@ -127,5 +130,85 @@ class ClassSessionController extends Controller
             'message' => 'Sesi berhasil direschedule.',
             'data' => $session->fresh()
         ]);
+    }
+
+    /**
+     * Submit attendance for students and logbook for teacher transactionally.
+     */
+    public function submitAttendanceAndLogbook(Request $request, string $id)
+    {
+        $session = ClassSession::findOrFail($id);
+
+        $validated = $request->validate([
+            'students' => 'required|array',
+            'students.*.student_id' => 'required|uuid|exists:students,id',
+            'students.*.attendance_status' => 'required|string|in:present,absent,late,excused',
+            'students.*.notes' => 'nullable|string',
+            'logbook' => 'required|array',
+            'logbook.check_in' => 'required|date',
+            'logbook.check_out' => 'required|date|after_or_equal:logbook.check_in',
+            'logbook.teaching_minutes' => 'required|integer|min:1',
+            'logbook.material' => 'required|string',
+            'logbook.notes' => 'nullable|string'
+        ]);
+
+        try {
+            DB::beginTransaction();
+
+            $attendances = [];
+            foreach ($validated['students'] as $studentData) {
+                // Remove existing if any (optional, depends on logic if they can resubmit)
+                StudentAttendance::where('class_session_id', $session->id)
+                    ->where('student_id', $studentData['student_id'])
+                    ->delete();
+
+                $attendances[] = StudentAttendance::create([
+                    'class_session_id' => $session->id,
+                    'student_id' => $studentData['student_id'],
+                    'attendance_status' => $studentData['attendance_status'],
+                    'notes' => $studentData['notes'] ?? null,
+                    'recorded_at' => now(),
+                    'recorded_by' => $request->user() ? $request->user()->id : null
+                ]);
+            }
+
+            // Remove existing logbook if any
+            TeacherLogbook::where('class_session_id', $session->id)
+                ->where('teacher_id', $session->teacher_id)
+                ->delete();
+
+            $logbook = TeacherLogbook::create([
+                'class_session_id' => $session->id,
+                'teacher_id' => $session->teacher_id,
+                'check_in' => $validated['logbook']['check_in'],
+                'check_out' => $validated['logbook']['check_out'],
+                'teaching_minutes' => $validated['logbook']['teaching_minutes'],
+                'material' => $validated['logbook']['material'],
+                'notes' => $validated['logbook']['notes'] ?? null,
+                'status' => 'submitted',
+                'submitted_at' => now()
+            ]);
+
+            $session->update(['status' => 'completed']);
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Absensi dan logbook berhasil disubmit.',
+                'data' => [
+                    'session' => $session->fresh(),
+                    'attendances' => $attendances,
+                    'logbook' => $logbook
+                ]
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal submit absensi dan logbook.',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 }
