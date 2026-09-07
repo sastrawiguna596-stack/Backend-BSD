@@ -35,4 +35,12 @@ return [
         ],
     ],
 
+    'payment_gateway' => [
+        'base_url'    => env('PAYMENT_GATEWAY_BASE_URL', 'https://pay.zannstore.com/api/v1'),
+        'api_key'     => env('PAYMENT_GATEWAY_API_KEY'),
+        'secret_key'  => env('PAYMENT_GATEWAY_SECRET_KEY'),
+        'merchant_id' => env('PAYMENT_GATEWAY_MERCHANT_ID'),
+        'callback_url'=> env('PAYMENT_GATEWAY_CALLBACK_URL'),
+    ],
+
 ];

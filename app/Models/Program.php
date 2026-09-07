@@ -11,4 +11,14 @@ class Program extends Model
     use HasFactory, HasUuids;
 
     protected $guarded = [];
+
+    public function levels()
+    {
+        return $this->hasMany(ProgramLevel::class)->orderBy('level_order');
+    }
+
+    public function enrollments()
+    {
+        return $this->hasMany(Enrollment::class);
+    }
 }
