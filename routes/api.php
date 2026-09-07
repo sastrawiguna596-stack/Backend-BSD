@@ -101,7 +101,11 @@ Route::prefix('v1')->group(function () {
         Route::put('programs/{program}/levels/{level}',   [ProgramController::class, 'updateLevel']);
         Route::delete('programs/{program}/levels/{level}', [ProgramController::class, 'destroyLevel']);
         Route::apiResource('enrollments', EnrollmentController::class);
+        
+        Route::post('class-sessions/{class_session}/reschedule', [ClassSessionController::class, 'reschedule']);
         Route::apiResource('class-sessions', ClassSessionController::class);
+        
+        Route::post('class-schedules/{class_schedule}/generate-sessions', [ClassScheduleController::class, 'generateSessions']);
         Route::apiResource('class-schedules', ClassScheduleController::class);
 
         // --- Monitoring & Evaluasi ---
