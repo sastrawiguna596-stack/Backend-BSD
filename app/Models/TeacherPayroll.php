@@ -12,4 +12,24 @@ class TeacherPayroll extends Model
 
     protected $table = 'teacher_payrolls';
     protected $guarded = [];
+
+    protected $casts = [
+        'period_start'   => 'date',
+        'period_end'     => 'date',
+        'teaching_hours' => 'float',
+        'base_amount'    => 'float',
+        'bonus_amount'   => 'float',
+        'total_amount'   => 'float',
+    ];
+
+    public function teacher()
+    {
+        return $this->belongsTo(Teacher::class, 'teacher_id');
+    }
+
+    public function creator()
+    {
+        return $this->belongsTo(User::class, 'created_by');
+    }
 }
+

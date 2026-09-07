@@ -25,6 +25,7 @@ use App\Http\Controllers\CertificateController;
 use App\Http\Controllers\PaymentPlanController;
 use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\CashTransactionController;
+use App\Http\Controllers\FinanceReportController;
 use App\Http\Controllers\TeacherPayrollController;
 
 use App\Http\Controllers\AnnouncementController;
@@ -92,6 +93,12 @@ Route::prefix('v1')->group(function () {
             // --- Verifikasi Pembayaran Tunai (Admin / Owner Only) ---
             Route::post('cash-transactions/{cashTransaction}/confirm', [CashTransactionController::class, 'confirm']);
             Route::post('cash-transactions/{cashTransaction}/reject',  [CashTransactionController::class, 'reject']);
+
+            // --- Dashboard & Laporan Keuangan (Hari 7 - Admin / Owner Only) ---
+            Route::get('finance/dashboard',             [FinanceReportController::class, 'dashboard']);
+            Route::get('finance/reports/income',        [FinanceReportController::class, 'incomeReport']);
+            Route::get('finance/reports/outstanding',   [FinanceReportController::class, 'outstandingReport']);
+            Route::get('finance/reports/reconciliation',[FinanceReportController::class, 'cashReconciliation']);
 
             // --- Pengumuman (Write) ---
             Route::post('/announcements', [AnnouncementController::class, 'store']);
