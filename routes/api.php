@@ -24,6 +24,7 @@ use App\Http\Controllers\CertificateController;
 
 use App\Http\Controllers\PaymentPlanController;
 use App\Http\Controllers\PaymentController;
+use App\Http\Controllers\CashTransactionController;
 use App\Http\Controllers\TeacherPayrollController;
 
 use App\Http\Controllers\AnnouncementController;
@@ -42,7 +43,9 @@ Route::prefix('v1')->group(function () {
     Route::post('/auth/login',    [AuthController::class, 'login']);
     Route::post('/auth/register', [AuthController::class, 'register']);
     Route::get('/announcements',  [AnnouncementController::class, 'index']);
-    Route::post('/payments/xendit/callback', [PaymentController::class, 'xenditCallback']);
+
+    // Webhook Payment Gateway 
+    Route::post('/payments/webhook', [PaymentController::class, 'webhook']);
 
     // ==========================================
     // 2. PROTECTED ROUTES (Harus Login / Token)
@@ -82,8 +85,13 @@ Route::prefix('v1')->group(function () {
 
             Route::apiResource('holidays', HolidayController::class);
             Route::apiResource('inventories', InventoryController::class);
+            Route::post('payment-plans/generate', [PaymentPlanController::class, 'generateForEnrollment']);
             Route::apiResource('payment-plans', PaymentPlanController::class);
             Route::apiResource('teacher-payrolls', TeacherPayrollController::class);
+
+            // --- Verifikasi Pembayaran Tunai (Admin / Owner Only) ---
+            Route::post('cash-transactions/{cashTransaction}/confirm', [CashTransactionController::class, 'confirm']);
+            Route::post('cash-transactions/{cashTransaction}/reject',  [CashTransactionController::class, 'reject']);
 
             // --- Pengumuman (Write) ---
             Route::post('/announcements', [AnnouncementController::class, 'store']);
@@ -116,8 +124,15 @@ Route::prefix('v1')->group(function () {
         Route::apiResource('final-reports', FinalReportController::class);
         Route::apiResource('certificates', CertificateController::class);
 
-        // --- Keuangan ---
+        // --- Keuangan & Pembayaran Digital ---
+        Route::post('payments/charge', [PaymentController::class, 'charge']);
+        Route::get('payments/{payment}/status', [PaymentController::class, 'checkStatus']);
         Route::apiResource('payments', PaymentController::class);
+
+        // --- Transaksi Tunai (Cash Payment) ---
+        Route::get('cash-transactions',          [CashTransactionController::class, 'index']);
+        Route::get('cash-transactions/{id}',     [CashTransactionController::class, 'show']);
+        Route::post('cash-transactions/submit',  [CashTransactionController::class, 'submit']);
 
     }); // End auth:sanctum
 });

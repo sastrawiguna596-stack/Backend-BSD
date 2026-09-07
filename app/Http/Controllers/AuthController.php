@@ -22,9 +22,10 @@ class AuthController extends Controller
         $user = User::where('email', $request->email)->first();
 
         if (! $user || ! Hash::check($request->password, $user->password_hash)) {
-            throw ValidationException::withMessages([
-                'email' => ['Email atau password salah.'],
-            ]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Email atau password salah.',
+            ], 401);
         }
 
         if (! $user->is_active) {
