@@ -103,6 +103,7 @@ Route::prefix('v1')->group(function () {
         Route::apiResource('enrollments', EnrollmentController::class);
         
         Route::post('class-sessions/{class_session}/reschedule', [ClassSessionController::class, 'reschedule']);
+        Route::post('class-sessions/{class_session}/submit-attendance', [ClassSessionController::class, 'submitAttendanceAndLogbook']);
         Route::apiResource('class-sessions', ClassSessionController::class);
         
         Route::post('class-schedules/{class_schedule}/generate-sessions', [ClassScheduleController::class, 'generateSessions']);
