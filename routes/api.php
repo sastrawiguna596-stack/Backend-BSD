@@ -87,7 +87,6 @@ Route::prefix('v1')->group(function () {
             Route::apiResource('inventories', InventoryController::class);
             Route::post('payment-plans/generate', [PaymentPlanController::class, 'generateForEnrollment']);
             Route::apiResource('payment-plans', PaymentPlanController::class);
-            Route::apiResource('teacher-payrolls', TeacherPayrollController::class);
 
             // --- Verifikasi Pembayaran Tunai (Admin / Owner Only) ---
             Route::post('cash-transactions/{cashTransaction}/confirm', [CashTransactionController::class, 'confirm']);
@@ -96,6 +95,15 @@ Route::prefix('v1')->group(function () {
             // --- Pengumuman (Write) ---
             Route::post('/announcements', [AnnouncementController::class, 'store']);
             Route::apiResource('announcements', AnnouncementController::class)->except(['index', 'store']);
+        });
+
+        // ==========================================
+        // 3.5 OWNER ONLY
+        //     Penggajian Guru (Payroll)
+        // ==========================================
+        Route::middleware('role:owner')->group(function () {
+            Route::post('teacher-payrolls/generate', [TeacherPayrollController::class, 'generatePayroll']);
+            Route::apiResource('teacher-payrolls', TeacherPayrollController::class);
         });
 
         // ==========================================
