@@ -29,7 +29,7 @@ class TeacherPayroll extends Model
         static::creating(function ($model) {
             if (empty($model->payroll_code)) {
                 $year = date('Y');
-                $lastRecord = self::where('payroll_code', 'like', "PAY-{$year}-%")
+                $lastRecord = self::where('payroll_code', 'like', "HNR-{$year}-%")
                     ->orderBy('payroll_code', 'desc')
                     ->first();
 
@@ -40,7 +40,7 @@ class TeacherPayroll extends Model
                     $newNumber = '0001';
                 }
 
-                $model->payroll_code = "PAY-{$year}-{$newNumber}";
+                $model->payroll_code = "HNR-{$year}-{$newNumber}";
             }
         });
     }
