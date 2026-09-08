@@ -13,6 +13,15 @@ class TeacherPayroll extends Model
     protected $table = 'teacher_payrolls';
     protected $guarded = [];
 
+    protected $casts = [
+        'period_start'   => 'date',
+        'period_end'     => 'date',
+        'teaching_hours' => 'float',
+        'base_amount'    => 'float',
+        'bonus_amount'   => 'float',
+        'total_amount'   => 'float',
+    ];
+
     protected static function boot()
     {
         parent::boot();
@@ -20,7 +29,7 @@ class TeacherPayroll extends Model
         static::creating(function ($model) {
             if (empty($model->payroll_code)) {
                 $year = date('Y');
-                $lastRecord = self::where('payroll_code', 'like', "PAY-{$year}-%")
+                $lastRecord = self::where('payroll_code', 'like', "HNR-{$year}-%")
                     ->orderBy('payroll_code', 'desc')
                     ->first();
 
@@ -31,13 +40,18 @@ class TeacherPayroll extends Model
                     $newNumber = '0001';
                 }
 
-                $model->payroll_code = "PAY-{$year}-{$newNumber}";
+                $model->payroll_code = "HNR-{$year}-{$newNumber}";
             }
         });
     }
 
     public function teacher()
     {
-        return $this->belongsTo(Teacher::class);
+        return $this->belongsTo(Teacher::class, 'teacher_id');
+    }
+
+    public function creator()
+    {
+        return $this->belongsTo(User::class, 'created_by');
     }
 }
