@@ -88,7 +88,6 @@ Route::prefix('v1')->group(function () {
             Route::apiResource('inventories', InventoryController::class);
             Route::post('payment-plans/generate', [PaymentPlanController::class, 'generateForEnrollment']);
             Route::apiResource('payment-plans', PaymentPlanController::class);
-            Route::apiResource('teacher-payrolls', TeacherPayrollController::class);
 
             // --- Verifikasi Pembayaran Tunai (Admin / Owner Only) ---
             Route::post('cash-transactions/{cashTransaction}/confirm', [CashTransactionController::class, 'confirm']);
@@ -106,6 +105,15 @@ Route::prefix('v1')->group(function () {
         });
 
         // ==========================================
+        // 3.5 OWNER ONLY
+        //     Penggajian Guru (Payroll)
+        // ==========================================
+        Route::middleware('role:owner')->group(function () {
+            Route::post('teacher-payrolls/generate', [TeacherPayrollController::class, 'generatePayroll']);
+            Route::apiResource('teacher-payrolls', TeacherPayrollController::class);
+        });
+
+        // ==========================================
         // 4. SEMUA ROLE YANG SUDAH LOGIN
         // ==========================================
 
@@ -116,7 +124,12 @@ Route::prefix('v1')->group(function () {
         Route::put('programs/{program}/levels/{level}',   [ProgramController::class, 'updateLevel']);
         Route::delete('programs/{program}/levels/{level}', [ProgramController::class, 'destroyLevel']);
         Route::apiResource('enrollments', EnrollmentController::class);
+        
+        Route::post('class-sessions/{class_session}/reschedule', [ClassSessionController::class, 'reschedule']);
+        Route::post('class-sessions/{class_session}/submit-attendance', [ClassSessionController::class, 'submitAttendanceAndLogbook']);
         Route::apiResource('class-sessions', ClassSessionController::class);
+        
+        Route::post('class-schedules/{class_schedule}/generate-sessions', [ClassScheduleController::class, 'generateSessions']);
         Route::apiResource('class-schedules', ClassScheduleController::class);
 
         // --- Monitoring & Evaluasi ---
