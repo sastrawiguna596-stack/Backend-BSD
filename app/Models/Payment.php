@@ -50,4 +50,9 @@ class Payment extends Model
     {
         return $this->hasOne(CashPaymentSubmission::class);
     }
+
+    public function cashTransaction()
+    {
+        return $this->hasOne(CashTransaction::class, 'payment_id');
+    }
 }

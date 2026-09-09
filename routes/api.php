@@ -24,6 +24,8 @@ use App\Http\Controllers\CertificateController;
 
 use App\Http\Controllers\PaymentPlanController;
 use App\Http\Controllers\PaymentController;
+use App\Http\Controllers\CashTransactionController;
+use App\Http\Controllers\FinanceReportController;
 use App\Http\Controllers\TeacherPayrollController;
 
 use App\Http\Controllers\AnnouncementController;
@@ -86,11 +88,29 @@ Route::prefix('v1')->group(function () {
             Route::apiResource('inventories', InventoryController::class);
             Route::post('payment-plans/generate', [PaymentPlanController::class, 'generateForEnrollment']);
             Route::apiResource('payment-plans', PaymentPlanController::class);
-            Route::apiResource('teacher-payrolls', TeacherPayrollController::class);
+
+            // --- Verifikasi Pembayaran Tunai (Admin / Owner Only) ---
+            Route::post('cash-transactions/{cashTransaction}/confirm', [CashTransactionController::class, 'confirm']);
+            Route::post('cash-transactions/{cashTransaction}/reject',  [CashTransactionController::class, 'reject']);
+
+            // --- Dashboard & Laporan Keuangan (Hari 7 - Admin / Owner Only) ---
+            Route::get('finance/dashboard',             [FinanceReportController::class, 'dashboard']);
+            Route::get('finance/reports/income',        [FinanceReportController::class, 'incomeReport']);
+            Route::get('finance/reports/outstanding',   [FinanceReportController::class, 'outstandingReport']);
+            Route::get('finance/reports/reconciliation',[FinanceReportController::class, 'cashReconciliation']);
 
             // --- Pengumuman (Write) ---
             Route::post('/announcements', [AnnouncementController::class, 'store']);
             Route::apiResource('announcements', AnnouncementController::class)->except(['index', 'store']);
+        });
+
+        // ==========================================
+        // 3.5 OWNER ONLY
+        //     Penggajian Guru (Payroll)
+        // ==========================================
+        Route::middleware('role:owner')->group(function () {
+            Route::post('teacher-payrolls/generate', [TeacherPayrollController::class, 'generatePayroll']);
+            Route::apiResource('teacher-payrolls', TeacherPayrollController::class);
         });
 
         // ==========================================
@@ -104,7 +124,12 @@ Route::prefix('v1')->group(function () {
         Route::put('programs/{program}/levels/{level}',   [ProgramController::class, 'updateLevel']);
         Route::delete('programs/{program}/levels/{level}', [ProgramController::class, 'destroyLevel']);
         Route::apiResource('enrollments', EnrollmentController::class);
+        
+        Route::post('class-sessions/{class_session}/reschedule', [ClassSessionController::class, 'reschedule']);
+        Route::post('class-sessions/{class_session}/submit-attendance', [ClassSessionController::class, 'submitAttendanceAndLogbook']);
         Route::apiResource('class-sessions', ClassSessionController::class);
+        
+        Route::post('class-schedules/{class_schedule}/generate-sessions', [ClassScheduleController::class, 'generateSessions']);
         Route::apiResource('class-schedules', ClassScheduleController::class);
 
         // --- Monitoring & Evaluasi ---
@@ -118,6 +143,11 @@ Route::prefix('v1')->group(function () {
         Route::post('payments/charge', [PaymentController::class, 'charge']);
         Route::get('payments/{payment}/status', [PaymentController::class, 'checkStatus']);
         Route::apiResource('payments', PaymentController::class);
+
+        // --- Transaksi Tunai (Cash Payment) ---
+        Route::get('cash-transactions',          [CashTransactionController::class, 'index']);
+        Route::get('cash-transactions/{id}',     [CashTransactionController::class, 'show']);
+        Route::post('cash-transactions/submit',  [CashTransactionController::class, 'submit']);
 
     }); // End auth:sanctum
 });

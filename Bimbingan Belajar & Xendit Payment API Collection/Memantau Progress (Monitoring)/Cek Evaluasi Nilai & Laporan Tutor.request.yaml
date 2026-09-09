@@ -1,0 +1,7 @@
+$kind: http-request
+url: "{{base_url}}/monitoring/reports"
+method: GET
+headers:
+  Accept: application/json
+  Authorization: Bearer {{auth_token}}
+order: 2000

@@ -1,0 +1,10 @@
+$kind: http-request
+url: "{{base_url}}/schedules/my-schedule?month=08&year=2026"
+method: GET
+headers:
+  Accept: application/json
+  Authorization: Bearer {{auth_token}}
+queryParams:
+  month: "08"
+  year: "2026"
+order: 1000
