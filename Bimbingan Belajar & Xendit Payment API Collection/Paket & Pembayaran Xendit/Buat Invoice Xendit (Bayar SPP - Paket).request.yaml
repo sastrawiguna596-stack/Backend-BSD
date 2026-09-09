@@ -1,0 +1,17 @@
+$kind: http-request
+name: Buat Invoice Xendit (Bayar SPP / Paket)
+url: "{{base_url}}/payments/xendit/create-invoice"
+method: POST
+headers:
+  Content-Type: application/json
+  Accept: application/json
+  Authorization: Bearer {{auth_token}}
+body:
+  type: text
+  content: |-
+    {
+      "package_id": 1,
+      "payer_email": "siswa@example.com",
+      "description": "Pembayaran SPP Bimbel Bulan September 2026"
+    }
+order: 2000

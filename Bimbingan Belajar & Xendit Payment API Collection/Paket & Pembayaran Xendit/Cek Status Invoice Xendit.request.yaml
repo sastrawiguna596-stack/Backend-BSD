@@ -1,0 +1,7 @@
+$kind: http-request
+url: "{{base_url}}/payments/xendit/status/BIMBEL-INV-20260827-001"
+method: GET
+headers:
+  Accept: application/json
+  Authorization: Bearer {{auth_token}}
+order: 3000

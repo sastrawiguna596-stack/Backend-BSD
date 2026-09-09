@@ -1,0 +1,8 @@
+$kind: http-request
+name: Cek Kehadiran / Presensi
+url: "{{base_url}}/monitoring/attendance"
+method: GET
+headers:
+  Accept: application/json
+  Authorization: Bearer {{auth_token}}
+order: 1000

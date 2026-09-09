@@ -1,0 +1,5 @@
+$kind: collection
+description: Postman Collection khusus Website Bimbingan Belajar (Cek Jadwal, Monitoring Presensi & Nilai, serta Pembayaran SPP via Xendit Payment Gateway).
+variables:
+  base_url: http://localhost:8000/api
+  auth_token: SLOT_BEARER_TOKEN_HERE

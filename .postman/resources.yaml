@@ -1,0 +1,13 @@
+# Use this workspace to collaborate
+workspace:
+  id: 776e330c-b75a-48d5-86ec-3f76a01dbe9b
+
+localResources:
+  collections:
+    - ../Bimbingan Belajar & Xendit Payment API Collection
+
+# Each entry here maps a local resource to one or more corresponding objects in Postman Cloud
+
+cloudResources:
+  collections:
+    ../Bimbingan Belajar & Xendit Payment API Collection: api-bimbel-xendit-collection
