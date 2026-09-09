@@ -12,4 +12,9 @@ class AnnouncementTarget extends Model
 
     protected $table = 'announcement_targets';
     protected $guarded = [];
+
+    public function announcement()
+    {
+        return $this->belongsTo(Announcement::class, 'announcement_id');
+    }
 }
