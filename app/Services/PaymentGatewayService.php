@@ -170,20 +170,23 @@ class PaymentGatewayService
 
         if ($method === 'va') {
             return match (true) {
+                str_contains($channelUpper, 'BCA')     => 'BCAVA',
                 str_contains($channelUpper, 'BRI')     => 'BRIVA',
-                str_contains($channelUpper, 'BCA')     => 'BCVA',
                 str_contains($channelUpper, 'BNI')     => 'BNIVA',
                 str_contains($channelUpper, 'MANDIRI') => 'MANDIRIVA',
-                default => !empty($channelUpper) ? $channelUpper : 'BCVA',
+                str_contains($channelUpper, 'BSI')     => 'BSIVA',
+                str_contains($channelUpper, 'CIMB')    => 'CIMBVA',
+                str_contains($channelUpper, 'DANAMON') => 'DANAMONVA',
+                str_contains($channelUpper, 'NEO')     => 'BNCVA',
+                default => !empty($channelUpper) ? $channelUpper : 'BCAVA',
             };
         }
 
         if ($method === 'ewallet') {
             return match (true) {
                 str_contains($channelUpper, 'SHOPEE') => 'SHOPEEPAY',
-                str_contains($channelUpper, 'GOPAY')   => 'GOPAY',
                 str_contains($channelUpper, 'OVO')     => 'OVO',
-                str_contains($channelUpper, 'DANA')    => 'DANA',
+                str_contains($channelUpper, 'LINKAJA') => 'LINKAJA',
                 default => !empty($channelUpper) ? $channelUpper : 'SHOPEEPAY',
             };
         }
