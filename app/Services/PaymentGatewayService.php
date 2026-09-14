@@ -211,6 +211,51 @@ class PaymentGatewayService
     }
 
     /**
+     * Mengambil daftar metode pembayaran dari ZannStore Gateway
+     * Dilengkapi rate-limiting protection & optional panduan cara bayar
+     *
+     * @param bool $includeGuide
+     * @return array
+     * @throws Exception
+     */
+    public function getPaymentMethods(bool $includeGuide = false): array
+    {
+        // Signature: sha256(merchant + secret_key)
+        $signature = hash('sha256', ($this->merchantId ?? '') . ($this->secretKey ?? ''));
+
+        $requestBody = [
+            'request'   => 'payment_methods',
+            'merchant'  => $this->merchantId,
+            'signature' => $signature,
+            'panduan'   => $includeGuide,
+        ];
+
+        try {
+            $response = Http::withHeaders([
+                'Content-Type' => 'application/json',
+                'Accept'       => 'application/json',
+            ])->timeout(15)->post($this->baseUrl, $requestBody);
+
+            $body = $response->json();
+
+            if ($response->successful() && (($body['status'] ?? false) === true) && isset($body['data'])) {
+                return $body['data'];
+            }
+
+            $errorMessage = $body['message'] ?? 'Gagal mengambil daftar metode pembayaran dari gateway.';
+            Log::warning('Payment Methods Fetch Warning', [
+                'status'   => $response->status(),
+                'response' => $body,
+            ]);
+
+            throw new Exception($errorMessage);
+        } catch (Exception $e) {
+            Log::error('Payment Gateway Methods Exception: ' . $e->getMessage());
+            throw $e;
+        }
+    }
+
+    /**
      * Generate Signature SHA-256: sha256(merchant + secret_key + trx_id)
      */
     protected function generateSignature(array $data): string

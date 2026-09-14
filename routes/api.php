@@ -140,6 +140,7 @@ Route::prefix('v1')->group(function () {
         Route::apiResource('certificates', CertificateController::class);
 
         // --- Keuangan & Pembayaran Digital ---
+        Route::get('payments/methods', [PaymentController::class, 'methods']);
         Route::post('payments/charge', [PaymentController::class, 'charge']);
         Route::get('payments/{payment}/status', [PaymentController::class, 'checkStatus']);
         Route::apiResource('payments', PaymentController::class);

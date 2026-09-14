@@ -8,6 +8,7 @@ use App\Models\PaymentPlan;
 use App\Services\PaymentGatewayService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -277,6 +278,34 @@ class PaymentController extends Controller
             'success' => true,
             'data'    => $payment,
         ]);
+    }
+
+    /**
+     * Mengambil daftar metode pembayaran aktif dari Payment Gateway
+     * Dilengkapi Cache 2 menit agar mematuhi rate limit ZannStore
+     */
+    public function methods(Request $request)
+    {
+        $includeGuide = $request->boolean('panduan', true);
+        $cacheKey = 'payment_gateway_methods_' . ($includeGuide ? 'with_guide' : 'simple');
+
+        try {
+            // Cache selama 120 detik (2 menit) sesuai rate limit gateway
+            $methods = Cache::remember($cacheKey, 120, function () use ($includeGuide) {
+                return $this->gatewayService->getPaymentMethods($includeGuide);
+            });
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Daftar metode pembayaran berhasil diambil.',
+                'data'    => $methods,
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal mengambil metode pembayaran: ' . $e->getMessage(),
+            ], 500);
+        }
     }
 
     /**
