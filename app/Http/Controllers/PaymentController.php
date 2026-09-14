@@ -88,7 +88,7 @@ class PaymentController extends Controller
 
         $amount = (float) $paymentPlan->amount;
         $paymentMethod = strtolower($validated['payment_method']);
-        $paymentChannel = $validated['payment_channel'] ?? ($paymentMethod === 'qris' ? 'QRISSP' : ($paymentMethod === 'va' ? 'BCVA' : 'SHOPEEPAY'));
+        $paymentChannel = $validated['payment_channel'] ?? ($paymentMethod === 'qris' ? $this->gatewayService->resolveActiveQrisChannel() : ($paymentMethod === 'va' ? 'BCVA' : 'SHOPEEPAY'));
 
         // Cek apakah sudah ada transaksi pending yang masih aktif dan belum kedaluwarsa untuk metode yang sama
         $existingPayment = Payment::where('payment_plan_id', $paymentPlan->id)

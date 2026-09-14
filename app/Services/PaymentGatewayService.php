@@ -103,6 +103,58 @@ class PaymentGatewayService
     }
 
     /**
+     * Memetakan channel QRIS dinamis berdasarkan status on/off & prioritas:
+     * 1. Jika ada QRISCUSTOM (dan aktif), jadikan utama.
+     * 2. Jika tidak ada / off -> gunakan QRISSPY (default utama).
+     * 3. Jika QRISSPY off -> gunakan QRIS2.
+     * 4. Jika QRISSPY off dan QRIS2 off -> gunakan QRIS.
+     */
+    public function resolveActiveQrisChannel(): string
+    {
+        try {
+            $cacheKey = 'payment_gateway_methods_simple';
+            $methods = \Illuminate\Support\Facades\Cache::remember($cacheKey, 120, function () {
+                return $this->getPaymentMethods(false);
+            });
+
+            $activeCodes = [];
+            foreach ($methods as $item) {
+                $code = strtoupper($item['code'] ?? ($item['payment'] ?? ($item['channel'] ?? '')));
+                $status = strtolower($item['status'] ?? '');
+                // Cek status aktif (on, active, true, 1)
+                if (in_array($status, ['on', 'active', 'true', '1', 'aktif', 'enabled']) || ($item['status'] ?? false) === true) {
+                    $activeCodes[$code] = true;
+                }
+            }
+
+            // 1. Jika QRISCUSTOM ada dan aktif -> Jadikan Utama
+            if (isset($activeCodes['QRISCUSTOM'])) {
+                return 'QRISCUSTOM';
+            }
+
+            // 2. Prioritas default: QRISSPY
+            if (isset($activeCodes['QRISSPY'])) {
+                return 'QRISSPY';
+            }
+
+            // 3. Jika QRISSPY off -> QRIS2
+            if (isset($activeCodes['QRIS2'])) {
+                return 'QRIS2';
+            }
+
+            // 4. Jika QRISSPY off & QRIS2 off -> QRIS
+            if (isset($activeCodes['QRIS'])) {
+                return 'QRIS';
+            }
+        } catch (\Exception $e) {
+            Log::warning('Fallback resolveActiveQrisChannel exception: ' . $e->getMessage());
+        }
+
+        // Default fallback jika tidak ada data aktif terdeteksi
+        return 'QRISSPY';
+    }
+
+    /**
      * Memetakan kode channel frontend ke kode channel gateway
      */
     protected function mapPaymentChannel(string $method, string $channel): string
@@ -110,7 +162,10 @@ class PaymentGatewayService
         $channelUpper = strtoupper(trim($channel));
 
         if ($method === 'qris') {
-            return !empty($channelUpper) && $channelUpper !== 'QRIS' ? $channelUpper : 'QRISNB';
+            if (!empty($channelUpper) && !in_array($channelUpper, ['QRIS', 'QRISSPY', 'QRIS2', 'QRISCUSTOM'])) {
+                return $channelUpper;
+            }
+            return $this->resolveActiveQrisChannel();
         }
 
         if ($method === 'va') {
