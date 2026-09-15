@@ -41,6 +41,7 @@ return [
         'secret_key'  => env('PAYMENT_GATEWAY_SECRET_KEY'),
         'merchant_id' => env('PAYMENT_GATEWAY_MERCHANT_ID'),
         'callback_url'=> env('PAYMENT_GATEWAY_CALLBACK_URL'),
+        'return_url'  => env('PAYMENT_GATEWAY_RETURN_URL'),
     ],
 
 ];

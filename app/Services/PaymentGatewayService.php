@@ -2,7 +2,6 @@
 
 namespace App\Services;
 
-use App\Models\Payment;
 use Carbon\Carbon;
 use Exception;
 use Illuminate\Support\Facades\Http;
@@ -80,7 +79,7 @@ class PaymentGatewayService
             $body = $response->json();
 
             if ($response->successful() && (($body['status'] ?? false) === true) && isset($body['data'])) {
-                return $this->normalizeGatewayData($payload['payment_method'], $channelCode, $body['data']);
+                return $this->normalizeGatewayData($channelCode, $body['data']);
             }
 
             $errorMessage = $body['message'] ?? $body['msg'] ?? 'Gagal membuat transaksi ke payment gateway.';
@@ -104,10 +103,9 @@ class PaymentGatewayService
 
     /**
      * Memetakan channel QRIS dinamis berdasarkan status on/off & prioritas:
-     * 1. Jika ada QRISCUSTOM (dan aktif), jadikan utama.
-     * 2. Jika tidak ada / off -> gunakan QRISSPY (default utama).
-     * 3. Jika QRISSPY off -> gunakan QRIS2.
-     * 4. Jika QRISSPY off dan QRIS2 off -> gunakan QRIS.
+     * 1. Jika ada QRISCUSTOM (dan aktif) -> Jadikan Utama.
+     * 2. Jika tidak ada / off -> gunakan QRISSPY (nomor dua / default utama).
+     * 3. Jika QRISSPY off -> switch langsung ke QRIS (nomor tiga).
      */
     public function resolveActiveQrisChannel(): string
     {
@@ -121,30 +119,30 @@ class PaymentGatewayService
             foreach ($methods as $item) {
                 $code = strtoupper($item['code'] ?? ($item['payment'] ?? ($item['channel'] ?? '')));
                 $status = strtolower($item['status'] ?? '');
-                // Cek status aktif (on, active, true, 1)
+                // Cek status aktif (on, active, true, 1, aktif, enabled)
                 if (in_array($status, ['on', 'active', 'true', '1', 'aktif', 'enabled']) || ($item['status'] ?? false) === true) {
                     $activeCodes[$code] = true;
                 }
             }
 
-            // 1. Jika QRISCUSTOM ada dan aktif -> Jadikan Utama
+            // 1. Jika QRISCUSTOM ada dan aktif -> Utama
             if (isset($activeCodes['QRISCUSTOM'])) {
                 return 'QRISCUSTOM';
             }
 
-            // 2. Prioritas default: QRISSPY
+            // 2. Jika tidak ada / off -> QRISSPY (nomor dua / default)
             if (isset($activeCodes['QRISSPY'])) {
                 return 'QRISSPY';
             }
 
-            // 3. Jika QRISSPY off -> QRIS2
-            if (isset($activeCodes['QRIS2'])) {
-                return 'QRIS2';
-            }
-
-            // 4. Jika QRISSPY off & QRIS2 off -> QRIS
+            // 3. Jika QRISSPY off -> switch ke QRIS
             if (isset($activeCodes['QRIS'])) {
                 return 'QRIS';
+            }
+
+            // Fallback cadangan jika QRIS juga tidak ada
+            if (isset($activeCodes['QRIS2'])) {
+                return 'QRIS2';
             }
         } catch (\Exception $e) {
             Log::warning('Fallback resolveActiveQrisChannel exception: ' . $e->getMessage());
@@ -157,7 +155,7 @@ class PaymentGatewayService
     /**
      * Memetakan kode channel frontend ke kode channel gateway
      */
-    protected function mapPaymentChannel(string $method, string $channel): string
+    public function mapPaymentChannel(string $method, string $channel): string
     {
         $channelUpper = strtoupper(trim($channel));
 
@@ -197,7 +195,7 @@ class PaymentGatewayService
     /**
      * Menormalisasi response dari pay.zannstore.com (QRIS / VA / E-Wallet)
      */
-    protected function normalizeGatewayData(string $method, string $channelCode, array $data): array
+    protected function normalizeGatewayData(string $channelCode, array $data): array
     {
         $referenceNumber = $data['trx_svr'] ?? $data['prov_txid'] ?? $data['trx_id'] ?? null;
         $fee = (float) ($data['fee'] ?? 0);
@@ -205,7 +203,26 @@ class PaymentGatewayService
         $totalAmount = (float) ($data['total_amount_bayar'] ?? $data['total_amount'] ?? ($amount + $fee));
 
         $expiredAtRaw = $data['expired_at'] ?? $data['expired_time'] ?? null;
-        $expiredAt = $expiredAtRaw ? Carbon::parse($expiredAtRaw) : Carbon::now()->addMinutes(30);
+        if ($expiredAtRaw) {
+            try {
+                // Jika gateway kirim integer unix timestamp
+                if (is_numeric($expiredAtRaw)) {
+                    $expiredAt = Carbon::createFromTimestamp((int) $expiredAtRaw);
+                } else {
+                    // Gateway (pay.zannstore.com) mengembalikan string waktu dalam zona WIB (UTC+7)
+                    // Jika string tidak memiliki penanda timezone (+07 / Z), parse sebagai WIB lalu set ke timezone aplikasi
+                    if (!preg_match('/[Z\+\-]\d{2}/i', (string) $expiredAtRaw)) {
+                        $expiredAt = Carbon::parse($expiredAtRaw, 'Asia/Jakarta')->setTimezone(config('app.timezone', 'UTC'));
+                    } else {
+                        $expiredAt = Carbon::parse($expiredAtRaw);
+                    }
+                }
+            } catch (\Throwable) {
+                $expiredAt = Carbon::now()->addMinutes(30);
+            }
+        } else {
+            $expiredAt = Carbon::now()->addMinutes(30);
+        }
 
         return [
             'success'          => true,
