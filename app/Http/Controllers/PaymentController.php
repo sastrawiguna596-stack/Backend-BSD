@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Enrollment;
 use App\Models\Payment;
 use App\Models\PaymentPlan;
 use App\Services\PaymentGatewayService;
@@ -51,7 +50,7 @@ class PaymentController extends Controller
         })
         ->orderBy('created_at', 'desc');
 
-        $payments = $query->paginate($request->get('per_page', 15));
+        $payments = $query->paginate((int) $request->input('per_page', 15));
 
         return response()->json([
             'success' => true,
@@ -88,9 +87,17 @@ class PaymentController extends Controller
 
         $amount = (float) $paymentPlan->amount;
         $paymentMethod = strtolower($validated['payment_method']);
-        $paymentChannel = $validated['payment_channel'] ?? ($paymentMethod === 'qris' ? $this->gatewayService->resolveActiveQrisChannel() : ($paymentMethod === 'va' ? 'BCVA' : 'SHOPEEPAY'));
+        $rawChannel = $validated['payment_channel'] ?? ($paymentMethod === 'qris' ? $this->gatewayService->resolveActiveQrisChannel() : ($paymentMethod === 'va' ? 'BCAVA' : 'SHOPEEPAY'));
+        $paymentChannel = $this->gatewayService->mapPaymentChannel($paymentMethod, $rawChannel);
 
-        // Cek apakah sudah ada transaksi pending yang masih aktif dan belum kedaluwarsa untuk metode yang sama
+        // Otomatis tandai transaksi yang sudah melewati batas waktu expired_at menjadi 'expired'
+        Payment::where('payment_plan_id', $paymentPlan->id)
+            ->where('payment_status', 'pending')
+            ->whereNotNull('expired_at')
+            ->where('expired_at', '<=', Carbon::now())
+            ->update(['payment_status' => 'expired']);
+
+        // Cek apakah sudah ada transaksi pending yang masih aktif dan belum kedaluwarsa untuk metode dan channel yang sama
         $existingPayment = Payment::where('payment_plan_id', $paymentPlan->id)
             ->where('payment_status', 'pending')
             ->where('payment_method', $paymentMethod)
@@ -229,7 +236,7 @@ class PaymentController extends Controller
             return response()->json(['success' => false, 'message' => 'Payment record not found.'], 404);
         }
 
-        DB::transaction(function () use ($payment, $status, $payload) {
+        DB::transaction(function () use ($payment, $status) {
             if (in_array($status, ['success', 'settled', 'paid', 'berhasil', 'capture'])) {
                 $payment->update([
                     'payment_status' => 'paid',
