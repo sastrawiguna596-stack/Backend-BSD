@@ -44,7 +44,7 @@ class PaymentGatewayService
      */
     public function createTransaction(array $payload): array
     {
-        $expiredTime = $payload['expired_time'] ?? '30m';
+        $expiredTime = $payload['expired_time'] ?? '2h';
         $typeFee = $payload['type_fee'] ?? 'user';
         $channelCode = $this->mapPaymentChannel($payload['payment_method'], $payload['payment_channel'] ?? '');
 
@@ -207,21 +207,20 @@ class PaymentGatewayService
             try {
                 // Jika gateway kirim integer unix timestamp
                 if (is_numeric($expiredAtRaw)) {
-                    $expiredAt = Carbon::createFromTimestamp((int) $expiredAtRaw);
+                    $expiredAt = Carbon::createFromTimestamp((int) $expiredAtRaw, 'Asia/Jakarta');
                 } else {
                     // Gateway (pay.zannstore.com) mengembalikan string waktu dalam zona WIB (UTC+7)
-                    // Jika string tidak memiliki penanda timezone (+07 / Z), parse sebagai WIB lalu set ke timezone aplikasi
                     if (!preg_match('/[Z\+\-]\d{2}/i', (string) $expiredAtRaw)) {
-                        $expiredAt = Carbon::parse($expiredAtRaw, 'Asia/Jakarta')->setTimezone(config('app.timezone', 'UTC'));
+                        $expiredAt = Carbon::parse($expiredAtRaw, 'Asia/Jakarta');
                     } else {
-                        $expiredAt = Carbon::parse($expiredAtRaw);
+                        $expiredAt = Carbon::parse($expiredAtRaw)->setTimezone('Asia/Jakarta');
                     }
                 }
             } catch (\Throwable) {
-                $expiredAt = Carbon::now()->addMinutes(30);
+                $expiredAt = Carbon::now('Asia/Jakarta')->addHours(2);
             }
         } else {
-            $expiredAt = Carbon::now()->addMinutes(30);
+            $expiredAt = Carbon::now('Asia/Jakarta')->addHours(2);
         }
 
         return [

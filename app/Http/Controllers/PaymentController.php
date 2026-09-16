@@ -90,11 +90,14 @@ class PaymentController extends Controller
         $rawChannel = $validated['payment_channel'] ?? ($paymentMethod === 'qris' ? $this->gatewayService->resolveActiveQrisChannel() : ($paymentMethod === 'va' ? 'BCAVA' : 'SHOPEEPAY'));
         $paymentChannel = $this->gatewayService->mapPaymentChannel($paymentMethod, $rawChannel);
 
-        // Otomatis tandai transaksi yang sudah melewati batas waktu expired_at menjadi 'expired'
+        // Waktu expired default 2 jam ('2h') untuk semua channel digital (VA, QRIS, E-Wallet)
+        $expiredTime = $validated['expired_time'] ?? '2h';
+
+        // Otomatis tandai transaksi yang sudah melewati batas waktu expired_at menjadi 'expired' (menggunakan waktu Asia/Jakarta)
         Payment::where('payment_plan_id', $paymentPlan->id)
             ->where('payment_status', 'pending')
             ->whereNotNull('expired_at')
-            ->where('expired_at', '<=', Carbon::now())
+            ->where('expired_at', '<=', Carbon::now('Asia/Jakarta'))
             ->update(['payment_status' => 'expired']);
 
         // Cek apakah sudah ada transaksi pending yang masih aktif dan belum kedaluwarsa untuk metode dan channel yang sama
@@ -104,7 +107,7 @@ class PaymentController extends Controller
             ->where('payment_channel', $paymentChannel)
             ->where(function ($query) {
                 $query->whereNull('expired_at')
-                      ->orWhere('expired_at', '>', Carbon::now());
+                      ->orWhere('expired_at', '>', Carbon::now('Asia/Jakarta'));
             })
             ->latest()
             ->first();
@@ -126,7 +129,7 @@ class PaymentController extends Controller
                         'amount'          => $existingPayment->amount,
                         'fee'             => $existingPayment->fee,
                         'total_amount'    => $existingPayment->total_amount,
-                        'expired_at'      => $existingPayment->expired_at ? $existingPayment->expired_at->toIso8601String() : null,
+                        'expired_at'      => $existingPayment->expired_at ? Carbon::parse($existingPayment->expired_at, 'Asia/Jakarta')->setTimezone('Asia/Jakarta')->toIso8601String() : null,
                     ]
                 ]
             ], 200);
@@ -136,7 +139,7 @@ class PaymentController extends Controller
         $paymentCode = 'INV-' . date('ymd') . '-' . strtoupper(bin2hex(random_bytes(2)));
 
         try {
-            // Request ke Payment Gateway (pay.zannstore.com)
+            // Request ke Payment Gateway (pay.zannstore.com) dengan expired_time default 2h (2 jam)
             $gatewayResult = $this->gatewayService->createTransaction([
                 'payment_code'    => $paymentCode,
                 'amount'          => $amount,
@@ -144,7 +147,7 @@ class PaymentController extends Controller
                 'payment_channel' => $paymentChannel,
                 'customer_name'   => $student->full_name ?? ($user->name ?? 'Orang Tua Siswa'),
                 'note'            => "Pembayaran Tagihan Sesi #{$paymentPlan->session_number} ({$enrollment->enrollment_code})",
-                'expired_time'    => $validated['expired_time'] ?? '30m',
+                'expired_time'    => $expiredTime,
                 'type_fee'        => $validated['type_fee'] ?? 'user',
             ]);
         } catch (\Exception $e) {
@@ -157,7 +160,7 @@ class PaymentController extends Controller
         $fee = (float) ($gatewayResult['fee'] ?? 0);
         $totalAmount = (float) ($gatewayResult['total_amount'] ?? ($amount + $fee));
 
-        // Simpan data transaksi ke database
+        // Simpan data transaksi ke database (expired_at disimpan dalam zona waktu Asia/Jakarta)
         $payment = Payment::create([
             'payment_code'     => $paymentCode,
             'payment_plan_id'  => $paymentPlan->id,
@@ -175,7 +178,7 @@ class PaymentController extends Controller
             'qr_url'           => $gatewayResult['qr_url'] ?? null,
             'checkout_url'     => $gatewayResult['checkout_url'] ?? null,
             'payment_status'   => 'pending',
-            'expired_at'       => $gatewayResult['expired_at'] ?? now()->addMinutes(30),
+            'expired_at'       => $gatewayResult['expired_at'] ?? Carbon::now('Asia/Jakarta')->addHours(2),
             'created_by'       => $user ? $user->id : null,
             'notes'            => $validated['notes'] ?? null,
         ]);
@@ -197,7 +200,7 @@ class PaymentController extends Controller
                     'amount'          => $payment->amount,
                     'fee'             => $payment->fee,
                     'total_amount'    => $payment->total_amount,
-                    'expired_at'      => $payment->expired_at ? $payment->expired_at->toIso8601String() : null,
+                    'expired_at'      => $payment->expired_at ? Carbon::parse($payment->expired_at, 'Asia/Jakarta')->setTimezone('Asia/Jakarta')->toIso8601String() : null,
                 ]
             ]
         ], 201);
