@@ -319,11 +319,54 @@ class PaymentController extends Controller
     }
 
     /**
-     * Mengecek status transaksi saat ini (polling dari tombol Cek Status di Frontend)
+     * Mengecek status transaksi saat ini (polling dari Frontend).
+     * Otomatis mendeteksi lingkungan:
+     * - Production: Mengandalkan Webhook instan dari Payment Gateway.
+     * - Localhost / Non-Production: Mengaktifkan Auto-Sync langsung ke Gateway saat status transaksi masih pending.
      */
     public function checkStatus(string $id)
     {
         $payment = Payment::with(['paymentPlan'])->findOrFail($id);
+
+        $appUrl = config('app.url', '');
+        $isLocal = app()->isLocal()
+            || !app()->isProduction()
+            || str_contains($appUrl, 'localhost')
+            || str_contains($appUrl, '127.0.0.1');
+
+        // Jika di Local / Non-Production dan transaksi masih pending, aktifkan auto-sync langsung ke Gateway
+        if ($payment->payment_status === 'pending' && $isLocal) {
+            try {
+                $gatewayData = $this->gatewayService->checkTransactionStatus($payment->payment_code);
+                if ($gatewayData) {
+                    $status = strtolower($gatewayData['status'] ?? ($gatewayData['transaction_status'] ?? ''));
+                    if (in_array($status, ['success', 'settled', 'paid', 'berhasil', 'capture'])) {
+                        DB::transaction(function () use ($payment) {
+                            $payment->update([
+                                'payment_status' => 'paid',
+                                'paid_at'        => Carbon::now(),
+                            ]);
+
+                            if ($payment->paymentPlan) {
+                                $payment->paymentPlan->update([
+                                    'is_paid' => true,
+                                    'status'  => 'paid',
+                                ]);
+                            }
+                        });
+                        $payment->refresh();
+                    } elseif (in_array($status, ['expired', 'expire', 'kadaluarsa'])) {
+                        $payment->update(['payment_status' => 'expired']);
+                        $payment->refresh();
+                    } elseif (in_array($status, ['failed', 'gagal', 'deny', 'cancel', 'batal'])) {
+                        $payment->update(['payment_status' => 'failed']);
+                        $payment->refresh();
+                    }
+                }
+            } catch (\Exception $e) {
+                Log::warning('Local Auto Check Status Error: ' . $e->getMessage());
+            }
+        }
 
         return response()->json([
             'success' => true,
@@ -334,6 +377,7 @@ class PaymentController extends Controller
                 'is_paid'        => $payment->payment_status === 'paid',
                 'paid_at'        => $payment->paid_at ? $payment->paid_at->toIso8601String() : null,
                 'total_amount'   => $payment->total_amount,
+                'mode'           => $isLocal ? 'local_auto_sync' : 'production_webhook',
             ]
         ]);
     }

@@ -330,6 +330,45 @@ class PaymentGatewayService
     }
 
     /**
+     * Mengecek status transaksi langsung ke Payment Gateway (pay.zannstore.com)
+     * Sangat berguna saat di Localhost / Non-Production di mana webhook tidak bisa menembus local tanpa tunnel
+     */
+    public function checkTransactionStatus(string $paymentCode): ?array
+    {
+        $signature = $this->generateSignature([
+            'merchant'   => $this->merchantId,
+            'secret_key' => $this->secretKey,
+            'trx_id'     => $paymentCode,
+        ]);
+
+        $requestBody = [
+            'request'   => 'status',
+            'merchant'  => $this->merchantId,
+            'trx_id'    => $paymentCode,
+            'signature' => $signature,
+        ];
+
+        try {
+            $response = Http::withHeaders([
+                'Content-Type' => 'application/json',
+                'Accept'       => 'application/json',
+            ])->timeout(10)->post($this->baseUrl, $requestBody);
+
+            $body = $response->json();
+            if ($response->successful() && isset($body['data']) && is_array($body['data'])) {
+                return $body['data'];
+            }
+            if ($response->successful() && is_array($body)) {
+                return $body;
+            }
+        } catch (\Exception $e) {
+            Log::warning('Payment Gateway Check Status Exception: ' . $e->getMessage());
+        }
+
+        return null;
+    }
+
+    /**
      * Generate Signature SHA-256: sha256(merchant + secret_key + trx_id)
      */
     protected function generateSignature(array $data): string
