@@ -341,11 +341,19 @@ class PaymentController extends Controller
                 if ($gatewayData) {
                     $status = strtolower($gatewayData['status'] ?? ($gatewayData['transaction_status'] ?? ''));
                     if (in_array($status, ['success', 'settled', 'paid', 'berhasil', 'capture'])) {
-                        DB::transaction(function () use ($payment) {
-                            $payment->update([
+                        $paidAt = !empty($gatewayData['paid_at']) ? Carbon::parse($gatewayData['paid_at'], 'Asia/Jakarta') : Carbon::now('Asia/Jakarta');
+                        $trxSvr = $gatewayData['trx_svr'] ?? ($gatewayData['reference_number'] ?? null);
+
+                        DB::transaction(function () use ($payment, $paidAt, $trxSvr) {
+                            $updateData = [
                                 'payment_status' => 'paid',
-                                'paid_at'        => Carbon::now(),
-                            ]);
+                                'paid_at'        => $paidAt,
+                            ];
+                            if ($trxSvr) {
+                                $updateData['reference_number'] = $trxSvr;
+                            }
+
+                            $payment->update($updateData);
 
                             if ($payment->paymentPlan) {
                                 $payment->paymentPlan->update([
