@@ -13,6 +13,27 @@ use Illuminate\Validation\Rule;
 class TeacherController extends Controller
 {
     /**
+     * Profil guru yang sedang login.
+     */
+    public function myProfile(Request $request)
+    {
+        $user = $request->user();
+        $teacher = Teacher::with('user')->where('user_id', $user->id)->first();
+
+        if (!$teacher) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Profil guru tidak ditemukan untuk akun ini.',
+            ], 404);
+        }
+
+        return response()->json([
+            'success' => true,
+            'data'    => $teacher,
+        ]);
+    }
+
+    /**
      * Daftar semua guru beserta data akun pengguna.
      * Mendukung filter is_active.
      */

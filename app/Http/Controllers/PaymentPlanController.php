@@ -22,6 +22,11 @@ class PaymentPlanController extends Controller
             'enrollment.programLevel',
             'payments'
         ])
+        ->when($request->user() && $request->user()->role === 'parent', function ($q) use ($request) {
+            $q->whereHas('enrollment.student.parents', function ($p) use ($request) {
+                $p->where('user_id', $request->user()->id);
+            });
+        })
         ->when($request->filled('status'), function ($q) use ($request) {
             $status = strtolower($request->status);
             if ($status === 'paid') {

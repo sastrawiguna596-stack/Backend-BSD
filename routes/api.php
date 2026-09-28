@@ -57,17 +57,43 @@ Route::prefix('v1')->group(function () {
         Route::get('/auth/me',      [AuthController::class, 'me']);
         Route::post('/auth/logout', [AuthController::class, 'logout']);
 
+        // --- Profile Endpoints (Untuk User yang Sedang Login) ---
+        Route::get('parents/my-profile',  [ParentController::class, 'myProfile']);
+        Route::get('teachers/my-profile', [TeacherController::class, 'myProfile']);
+
+        // --- Data yang Bisa Dibaca Semua Role yang Sudah Login ---
+        Route::get('students',           [StudentController::class, 'index']);
+        Route::get('students/{student}', [StudentController::class, 'show']);
+
+        Route::get('teachers',           [TeacherController::class, 'index']);
+        Route::get('teachers/{teacher}', [TeacherController::class, 'show']);
+
+        Route::get('classrooms',               [ClassroomController::class, 'index']);
+        Route::get('classrooms/{classroom}',   [ClassroomController::class, 'show']);
+
+        Route::get('payment-plans',                  [PaymentPlanController::class, 'index']);
+        Route::get('payment-plans/{payment_plan}',   [PaymentPlanController::class, 'show']);
+
+        Route::get('holidays',           [HolidayController::class, 'index']);
+        Route::get('holidays/{holiday}', [HolidayController::class, 'show']);
+
         // ==========================================
         // 3. OWNER & ADMIN ONLY
-        //    Manajemen Guru, Siswa, Orang Tua
+        //    Manajemen Guru, Siswa, Orang Tua (Write)
         // ==========================================
         Route::middleware('role:owner,admin')->group(function () {
 
-            // --- Manajemen Guru ---
-            Route::apiResource('teachers', TeacherController::class);
+            // --- Manajemen Guru (Write) ---
+            Route::post('teachers',                      [TeacherController::class, 'store']);
+            Route::put('teachers/{teacher}',             [TeacherController::class, 'update']);
+            Route::patch('teachers/{teacher}',           [TeacherController::class, 'update']);
+            Route::delete('teachers/{teacher}',          [TeacherController::class, 'destroy']);
 
-            // --- Manajemen Siswa ---
-            Route::apiResource('students', StudentController::class);
+            // --- Manajemen Siswa (Write) ---
+            Route::post('students',                      [StudentController::class, 'store']);
+            Route::put('students/{student}',             [StudentController::class, 'update']);
+            Route::patch('students/{student}',           [StudentController::class, 'update']);
+            Route::delete('students/{student}',          [StudentController::class, 'destroy']);
 
             // --- Manajemen Orang Tua ---
             Route::apiResource('parents', ParentController::class);
@@ -78,16 +104,27 @@ Route::prefix('v1')->group(function () {
             // --- Manajemen Pengguna ---
             Route::apiResource('users', UserController::class);
 
-            // --- Master Data Lainnya ---
-            Route::apiResource('classrooms', ClassroomController::class);
+            // --- Master Data Lainnya (Write) ---
+            Route::post('classrooms',                                  [ClassroomController::class, 'store']);
+            Route::put('classrooms/{classroom}',                       [ClassroomController::class, 'update']);
+            Route::patch('classrooms/{classroom}',                     [ClassroomController::class, 'update']);
+            Route::delete('classrooms/{classroom}',                    [ClassroomController::class, 'destroy']);
             // Assign / lepas guru dari kelas
-            Route::post('classrooms/{classroom}/teachers',            [ClassroomController::class, 'assignTeacher']);
-            Route::delete('classrooms/{classroom}/teachers/{teacher}', [ClassroomController::class, 'removeTeacher']);
+            Route::post('classrooms/{classroom}/teachers',             [ClassroomController::class, 'assignTeacher']);
+            Route::delete('classrooms/{classroom}/teachers/{teacher}',  [ClassroomController::class, 'removeTeacher']);
 
-            Route::apiResource('holidays', HolidayController::class);
+            Route::post('holidays',                      [HolidayController::class, 'store']);
+            Route::put('holidays/{holiday}',             [HolidayController::class, 'update']);
+            Route::patch('holidays/{holiday}',           [HolidayController::class, 'update']);
+            Route::delete('holidays/{holiday}',          [HolidayController::class, 'destroy']);
+
             Route::apiResource('inventories', InventoryController::class);
-            Route::post('payment-plans/generate', [PaymentPlanController::class, 'generateForEnrollment']);
-            Route::apiResource('payment-plans', PaymentPlanController::class);
+
+            Route::post('payment-plans/generate',        [PaymentPlanController::class, 'generateForEnrollment']);
+            Route::post('payment-plans',                 [PaymentPlanController::class, 'store']);
+            Route::put('payment-plans/{payment_plan}',   [PaymentPlanController::class, 'update']);
+            Route::patch('payment-plans/{payment_plan}', [PaymentPlanController::class, 'update']);
+            Route::delete('payment-plans/{payment_plan}',[PaymentPlanController::class, 'destroy']);
 
             // --- Verifikasi Pembayaran Tunai (Admin / Owner Only) ---
             Route::post('cash-transactions/{cashTransaction}/confirm', [CashTransactionController::class, 'confirm']);

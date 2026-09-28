@@ -16,6 +16,11 @@ class StudentController extends Controller
     public function index(Request $request)
     {
         $query = Student::with('parents.user')
+            ->when($request->user() && $request->user()->role === 'parent', function ($q) use ($request) {
+                $q->whereHas('parents', function ($p) use ($request) {
+                    $p->where('user_id', $request->user()->id);
+                });
+            })
             ->when($request->status, function ($q) use ($request) {
                 $q->where('status', $request->status);
             })
