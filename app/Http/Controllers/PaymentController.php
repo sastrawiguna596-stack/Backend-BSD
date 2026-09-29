@@ -70,6 +70,7 @@ class PaymentController extends Controller
             'expired_time'    => 'nullable|string|max:10', // e.g: 30m, 24h
             'type_fee'        => 'nullable|string|in:user,merchant',
             'notes'           => 'nullable|string|max:255',
+            'payment_type'    => 'nullable|string|in:per_pertemuan,pelunasan',
         ]);
 
         $paymentPlan = PaymentPlan::with(['enrollment.student', 'enrollment.program'])->findOrFail($validated['payment_plan_id']);
@@ -85,7 +86,22 @@ class PaymentController extends Controller
         $student = $enrollment->student;
         $user = $request->user();
 
-        $amount = (float) $paymentPlan->amount;
+        $isPelunasan = ($validated['payment_type'] ?? 'per_pertemuan') === 'pelunasan';
+
+        // Jika pelunasan, hitung seluruh sisa sesi yang belum lunas
+        if ($isPelunasan) {
+            $unpaidPlans = PaymentPlan::where('enrollment_id', $enrollment->id)
+                ->where('is_paid', false)
+                ->get();
+            $amount = (float) $unpaidPlans->sum('amount');
+            $noteText = "Pelunasan Paket {$enrollment->program?->name} ({$unpaidPlans->count()} Sesi - {$enrollment->enrollment_code})";
+            $paymentNotes = $validated['notes'] ?? "Pelunasan Sisa Paket ({$unpaidPlans->count()} Sesi)";
+        } else {
+            $amount = (float) $paymentPlan->amount;
+            $noteText = "Pembayaran Tagihan Sesi #{$paymentPlan->session_number} ({$enrollment->enrollment_code})";
+            $paymentNotes = $validated['notes'] ?? null;
+        }
+
         $paymentMethod = strtolower($validated['payment_method']);
         $rawChannel = $validated['payment_channel'] ?? ($paymentMethod === 'qris' ? $this->gatewayService->resolveActiveQrisChannel() : ($paymentMethod === 'va' ? 'BCAVA' : 'SHOPEEPAY'));
         $paymentChannel = $this->gatewayService->mapPaymentChannel($paymentMethod, $rawChannel);
@@ -105,6 +121,7 @@ class PaymentController extends Controller
             ->where('payment_status', 'pending')
             ->where('payment_method', $paymentMethod)
             ->where('payment_channel', $paymentChannel)
+            ->where('amount', $amount)
             ->where(function ($query) {
                 $query->whereNull('expired_at')
                       ->orWhere('expired_at', '>', Carbon::now('Asia/Jakarta'));
@@ -146,7 +163,7 @@ class PaymentController extends Controller
                 'payment_method'  => $paymentMethod,
                 'payment_channel' => $paymentChannel,
                 'customer_name'   => $student->full_name ?? ($user->name ?? 'Orang Tua Siswa'),
-                'note'            => "Pembayaran Tagihan Sesi #{$paymentPlan->session_number} ({$enrollment->enrollment_code})",
+                'note'            => $noteText,
                 'expired_time'    => $expiredTime,
                 'type_fee'        => $validated['type_fee'] ?? 'user',
             ]);
@@ -180,7 +197,7 @@ class PaymentController extends Controller
             'payment_status'   => 'pending',
             'expired_at'       => $gatewayResult['expired_at'] ?? Carbon::now('Asia/Jakarta')->addHours(2),
             'created_by'       => $user ? $user->id : null,
-            'notes'            => $validated['notes'] ?? null,
+            'notes'            => $paymentNotes,
         ]);
 
         // Response terstruktur untuk Frontend (React)
@@ -247,7 +264,14 @@ class PaymentController extends Controller
                 ]);
 
                 // Update tagihan terkait di payment_plans menjadi lunas
-                if ($payment->paymentPlan) {
+                if ($payment->notes && str_contains(strtolower($payment->notes), 'pelunasan')) {
+                    PaymentPlan::where('enrollment_id', $payment->enrollment_id)
+                        ->where('is_paid', false)
+                        ->update([
+                            'is_paid' => true,
+                            'status'  => 'paid',
+                        ]);
+                } elseif ($payment->paymentPlan) {
                     $payment->paymentPlan->update([
                         'is_paid' => true,
                         'status'  => 'paid',
@@ -355,7 +379,14 @@ class PaymentController extends Controller
 
                             $payment->update($updateData);
 
-                            if ($payment->paymentPlan) {
+                            if ($payment->notes && str_contains(strtolower($payment->notes), 'pelunasan')) {
+                                PaymentPlan::where('enrollment_id', $payment->enrollment_id)
+                                    ->where('is_paid', false)
+                                    ->update([
+                                        'is_paid' => true,
+                                        'status'  => 'paid',
+                                    ]);
+                            } elseif ($payment->paymentPlan) {
                                 $payment->paymentPlan->update([
                                     'is_paid' => true,
                                     'status'  => 'paid',

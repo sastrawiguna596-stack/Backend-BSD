@@ -44,7 +44,7 @@ class CashTransactionController extends Controller
         })
         ->orderBy('submitted_at', 'desc');
 
-        $transactions = $query->paginate($request->get('per_page', 15));
+        $transactions = $query->paginate((int) $request->input('per_page', 15));
 
         return response()->json([
             'success' => true,
@@ -92,6 +92,7 @@ class CashTransactionController extends Controller
             'receipt_number'  => 'nullable|string|max:100',
             'notes'           => 'nullable|string|max:500',
             'proof_image'     => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:2048', // 2MB max
+            'payment_type'    => 'nullable|string|in:per_pertemuan,pelunasan',
         ]);
 
         $paymentPlan = PaymentPlan::with(['enrollment.student', 'enrollment.program'])->findOrFail($validated['payment_plan_id']);
@@ -127,7 +128,19 @@ class CashTransactionController extends Controller
         }
 
         return DB::transaction(function () use ($paymentPlan, $enrollment, $student, $user, $validated, $proofPath) {
-            $amount = (float) $paymentPlan->amount;
+            $isPelunasan = ($validated['payment_type'] ?? 'per_pertemuan') === 'pelunasan';
+
+            if ($isPelunasan) {
+                $unpaidPlans = PaymentPlan::where('enrollment_id', $enrollment->id)
+                    ->where('is_paid', false)
+                    ->get();
+                $amount = (float) $unpaidPlans->sum('amount');
+                $paymentNotes = $validated['notes'] ?? "Pelunasan Sisa Paket ({$unpaidPlans->count()} Sesi)";
+            } else {
+                $amount = (float) $paymentPlan->amount;
+                $paymentNotes = $validated['notes'] ?? null;
+            }
+
             $year = date('Y');
 
             // Generate kode unik CASH-2026-xxxx
@@ -158,7 +171,7 @@ class CashTransactionController extends Controller
                 'reference_number' => $cashCode,
                 'payment_status'   => 'pending',
                 'created_by'       => $user->id,
-                'notes'            => $validated['notes'] ?? null,
+                'notes'            => $paymentNotes,
             ]);
 
             // 2. Buat detail audit trail cash_transactions
@@ -174,7 +187,7 @@ class CashTransactionController extends Controller
                 'submitted_at'     => Carbon::now(),
                 'receipt_number'   => $validated['receipt_number'] ?? null,
                 'proof_image'      => $proofPath ? Storage::url($proofPath) : null,
-                'notes'            => $validated['notes'] ?? null,
+                'notes'            => $paymentNotes,
             ]);
 
             return response()->json([
@@ -236,7 +249,17 @@ class CashTransactionController extends Controller
             }
 
             // 3. Update status tagihan payment_plans menjadi lunas
-            if ($cashTransaction->paymentPlan) {
+            $isPelunasan = ($cashTransaction->notes && str_contains(strtolower($cashTransaction->notes), 'pelunasan'))
+                || ($cashTransaction->payment && $cashTransaction->payment->notes && str_contains(strtolower($cashTransaction->payment->notes), 'pelunasan'));
+
+            if ($isPelunasan) {
+                PaymentPlan::where('enrollment_id', $cashTransaction->enrollment_id)
+                    ->where('is_paid', false)
+                    ->update([
+                        'is_paid' => true,
+                        'status'  => 'paid',
+                    ]);
+            } elseif ($cashTransaction->paymentPlan) {
                 $cashTransaction->paymentPlan->update([
                     'is_paid' => true,
                     'status'  => 'paid',
