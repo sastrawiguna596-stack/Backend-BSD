@@ -103,11 +103,69 @@ class AuthController extends Controller
      */
     public function me(Request $request)
     {
-        $user = $request->user()->load('teacher', 'parent', 'owner', 'admin');
+        $user = $request->user()->load([
+            'teacher.classrooms.programLevel.program',
+            'parent.students.enrollments.classroom',
+            'parent.students.enrollments.program',
+            'owner',
+            'admin',
+        ]);
 
         return response()->json([
             'success' => true,
             'data'    => $user,
+        ]);
+    }
+
+    /**
+     * Update data profil dasar pengguna yang sedang login.
+     */
+    public function updateProfile(Request $request)
+    {
+        $user = $request->user();
+
+        $validated = $request->validate([
+            'name'  => 'required|string|max:255',
+            'email' => 'required|email|unique:users,email,' . $user->id,
+            'phone' => 'nullable|string|max:20',
+        ]);
+
+        $user->update($validated);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Profil berhasil diperbarui.',
+            'data'    => $user,
+        ]);
+    }
+
+    /**
+     * Ubah password pengguna yang sedang login.
+     */
+    public function updatePassword(Request $request)
+    {
+        $request->validate([
+            'current_password' => 'required|string',
+            'new_password'     => 'required|string|min:8|different:current_password',
+            'confirm_password' => 'required|same:new_password',
+        ]);
+
+        $user = $request->user();
+
+        if (! Hash::check($request->current_password, $user->password_hash)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Password saat ini tidak sesuai.',
+            ], 422);
+        }
+
+        $user->update([
+            'password_hash' => Hash::make($request->new_password),
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Password berhasil diperbarui.',
         ]);
     }
 

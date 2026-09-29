@@ -54,8 +54,10 @@ Route::prefix('v1')->group(function () {
     Route::middleware('auth:sanctum')->group(function () {
 
         // --- Auth ---
-        Route::get('/auth/me',      [AuthController::class, 'me']);
-        Route::post('/auth/logout', [AuthController::class, 'logout']);
+        Route::get('/auth/me',         [AuthController::class, 'me']);
+        Route::put('/auth/profile',    [AuthController::class, 'updateProfile']);
+        Route::put('/auth/password',   [AuthController::class, 'updatePassword']);
+        Route::post('/auth/logout',    [AuthController::class, 'logout']);
 
         // --- Profile Endpoints (Untuk User yang Sedang Login) ---
         Route::get('parents/my-profile',  [ParentController::class, 'myProfile']);
