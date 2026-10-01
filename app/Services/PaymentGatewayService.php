@@ -217,10 +217,10 @@ class PaymentGatewayService
                     }
                 }
             } catch (\Throwable) {
-                $expiredAt = Carbon::now('Asia/Jakarta')->addHours(2);
+                $expiredAt = Carbon::now('Asia/Jakarta')->addMinutes(30);
             }
         } else {
-            $expiredAt = Carbon::now('Asia/Jakarta')->addHours(2);
+            $expiredAt = Carbon::now('Asia/Jakarta')->addMinutes(30);
         }
 
         return [

@@ -114,8 +114,8 @@ class PaymentController extends Controller
         $rawChannel = $validated['payment_channel'] ?? ($paymentMethod === 'qris' ? $this->gatewayService->resolveActiveQrisChannel() : ($paymentMethod === 'va' ? 'BCAVA' : 'SHOPEEPAY'));
         $paymentChannel = $this->gatewayService->mapPaymentChannel($paymentMethod, $rawChannel);
 
-        // Waktu expired default 2 jam ('2h') untuk semua channel digital (VA, QRIS, E-Wallet)
-        $expiredTime = $validated['expired_time'] ?? '2h';
+        // Waktu expired default 30 menit ('30m') untuk semua channel digital (QRIS, VA, E-Wallet)
+        $expiredTime = $validated['expired_time'] ?? '30m';
 
         // Otomatis tandai transaksi yang sudah melewati batas waktu expired_at menjadi 'expired' (menggunakan waktu Asia/Jakarta)
         Payment::where('payment_plan_id', $paymentPlan->id)
@@ -203,7 +203,7 @@ class PaymentController extends Controller
             'qr_url'           => $gatewayResult['qr_url'] ?? null,
             'checkout_url'     => $gatewayResult['checkout_url'] ?? null,
             'payment_status'   => 'pending',
-            'expired_at'       => $gatewayResult['expired_at'] ?? Carbon::now('Asia/Jakarta')->addHours(2),
+            'expired_at'       => $gatewayResult['expired_at'] ?? Carbon::now('Asia/Jakarta')->addMinutes(30),
             'created_by'       => $user ? $user->id : null,
             'notes'            => $paymentNotes,
         ]);
