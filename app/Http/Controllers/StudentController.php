@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Enums\StudentStatus;
 use App\Models\Student;
+use App\Models\Teacher;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
@@ -15,10 +16,29 @@ class StudentController extends Controller
      */
     public function index(Request $request)
     {
+        $user = $request->user();
+        $isTeacher = $user && strtolower($user->role) === 'teacher';
+        $isParent = $user && strtolower($user->role) === 'parent';
+        $teacherId = null;
+
+        if ($isTeacher) {
+            $teacherId = Teacher::where('user_id', $user->id)->value('id') ?: '00000000-0000-0000-0000-000000000000';
+        }
+
         $query = Student::with('parents.user')
-            ->when($request->user() && $request->user()->role === 'parent', function ($q) use ($request) {
-                $q->whereHas('parents', function ($p) use ($request) {
-                    $p->where('user_id', $request->user()->id);
+            ->when($isParent, function ($q) use ($user) {
+                $q->whereHas('parents', function ($p) use ($user) {
+                    $p->where('user_id', $user->id);
+                });
+            })
+            ->when($isTeacher, function ($q) use ($teacherId) {
+                $q->whereHas('enrollments.classroom.teachers', function ($t) use ($teacherId) {
+                    $t->where('teachers.id', $teacherId);
+                });
+            })
+            ->when($request->filled('classroom_id'), function ($q) use ($request) {
+                $q->whereHas('enrollments', function ($enr) use ($request) {
+                    $enr->where('classroom_id', $request->classroom_id)->where('status', 'active');
                 });
             })
             ->when($request->status, function ($q) use ($request) {

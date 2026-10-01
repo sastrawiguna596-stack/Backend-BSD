@@ -5,14 +5,40 @@ namespace App\Http\Controllers;
 use App\Models\ClassSchedule;
 use App\Models\ClassSession;
 use App\Models\Holiday;
+use App\Models\Teacher;
 use Illuminate\Http\Request;
 use Carbon\Carbon;
 
 class ClassScheduleController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
-        $schedules = ClassSchedule::with(['classroom', 'teacher'])->get();
+        $user = $request->user();
+        $isTeacher = $user && strtolower($user->role) === 'teacher';
+        $teacherId = null;
+
+        if ($isTeacher) {
+            $teacherId = Teacher::where('user_id', $user->id)->value('id') ?: '00000000-0000-0000-0000-000000000000';
+        }
+
+        $query = ClassSchedule::with(['classroom.programLevel.program', 'teacher.user'])
+            ->when($isTeacher, function ($q) use ($teacherId) {
+                $q->where('teacher_id', $teacherId);
+            })
+            ->when($request->filled('teacher_id') && !$isTeacher, function ($q) use ($request) {
+                $q->where('teacher_id', $request->teacher_id);
+            })
+            ->when($request->filled('classroom_id'), function ($q) use ($request) {
+                $q->where('classroom_id', $request->classroom_id);
+            })
+            ->when($request->filled('day_of_week'), function ($q) use ($request) {
+                $q->where('day_of_week', $request->day_of_week);
+            })
+            ->when($request->has('is_active'), function ($q) use ($request) {
+                $q->where('is_active', filter_var($request->is_active, FILTER_VALIDATE_BOOLEAN));
+            });
+
+        $schedules = $query->get();
         return response()->json(['success' => true, 'data' => $schedules]);
     }
 

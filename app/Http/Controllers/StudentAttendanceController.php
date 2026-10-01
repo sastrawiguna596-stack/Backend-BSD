@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\StudentAttendance;
+use App\Models\Teacher;
 use Illuminate\Http\Request;
 
 class StudentAttendanceController extends Controller
@@ -13,7 +14,26 @@ class StudentAttendanceController extends Controller
      */
     public function index(Request $request)
     {
+        $user = $request->user();
+        $isTeacher = $user && strtolower($user->role) === 'teacher';
+        $isParent = $user && strtolower($user->role) === 'parent';
+        $teacherId = null;
+
+        if ($isTeacher) {
+            $teacherId = Teacher::where('user_id', $user->id)->value('id') ?: '00000000-0000-0000-0000-000000000000';
+        }
+
         $query = StudentAttendance::with(['student', 'classSession.classroom', 'classSession.teacher.user'])
+            ->when($isTeacher, function ($q) use ($teacherId) {
+                $q->whereHas('classSession', function ($cs) use ($teacherId) {
+                    $cs->where('teacher_id', $teacherId);
+                });
+            })
+            ->when($isParent, function ($q) use ($user) {
+                $q->whereHas('student.parents', function ($p) use ($user) {
+                    $p->where('user_id', $user->id);
+                });
+            })
             ->when($request->student_id, fn($q) => $q->where('student_id', $request->student_id))
             ->when($request->class_session_id, fn($q) => $q->where('class_session_id', $request->class_session_id))
             ->when($request->attendance_status, fn($q) => $q->where('attendance_status', $request->attendance_status))

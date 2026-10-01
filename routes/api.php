@@ -146,16 +146,23 @@ Route::prefix('v1')->group(function () {
 
         // ==========================================
         // 3.5 OWNER ONLY
-        //     Penggajian Guru (Payroll)
+        //     Penggajian Guru (Payroll Write)
         // ==========================================
         Route::middleware('role:owner')->group(function () {
             Route::post('teacher-payrolls/generate', [TeacherPayrollController::class, 'generatePayroll']);
-            Route::apiResource('teacher-payrolls', TeacherPayrollController::class);
+            Route::post('teacher-payrolls',          [TeacherPayrollController::class, 'store']);
+            Route::put('teacher-payrolls/{teacher_payroll}',    [TeacherPayrollController::class, 'update']);
+            Route::patch('teacher-payrolls/{teacher_payroll}',  [TeacherPayrollController::class, 'update']);
+            Route::delete('teacher-payrolls/{teacher_payroll}', [TeacherPayrollController::class, 'destroy']);
         });
 
         // ==========================================
         // 4. SEMUA ROLE YANG SUDAH LOGIN
         // ==========================================
+
+        // --- Payroll (Read untuk Owner & Guru yang bersangkutan) ---
+        Route::get('teacher-payrolls',                        [TeacherPayrollController::class, 'index']);
+        Route::get('teacher-payrolls/{teacher_payroll}',      [TeacherPayrollController::class, 'show']);
 
         // --- Akademik & Kelas ---
         Route::apiResource('programs', ProgramController::class);

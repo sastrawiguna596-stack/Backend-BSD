@@ -28,6 +28,16 @@ class ClassSession extends Model
         return $this->belongsTo(ClassSchedule::class);
     }
 
+    public function teacherLogbook()
+    {
+        return $this->hasOne(TeacherLogbook::class);
+    }
+
+    public function studentAttendances()
+    {
+        return $this->hasMany(StudentAttendance::class);
+    }
+
     /**
      * Check if there's an overlapping session for the same room or teacher.
      */

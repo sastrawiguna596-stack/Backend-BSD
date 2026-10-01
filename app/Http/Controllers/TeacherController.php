@@ -39,7 +39,13 @@ class TeacherController extends Controller
      */
     public function index(Request $request)
     {
+        $user = $request->user();
+        $isTeacher = $user && strtolower($user->role) === 'teacher';
+
         $query = Teacher::with('user')
+            ->when($isTeacher, function ($q) use ($user) {
+                $q->where('user_id', $user->id);
+            })
             ->when($request->has('is_active'), function ($q) use ($request) {
                 $q->where('is_active', filter_var($request->is_active, FILTER_VALIDATE_BOOLEAN));
             })
@@ -109,9 +115,16 @@ class TeacherController extends Controller
     /**
      * Detail satu guru.
      */
-    public function show(string $id)
+    public function show(Request $request, string $id)
     {
         $teacher = Teacher::with('user')->findOrFail($id);
+
+        if ($request->user() && $request->user()->role === 'teacher' && $teacher->user_id !== $request->user()->id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Anda tidak memiliki akses ke data guru ini.',
+            ], 403);
+        }
 
         return response()->json([
             'success' => true,
@@ -125,6 +138,13 @@ class TeacherController extends Controller
     public function update(Request $request, string $id)
     {
         $teacher = Teacher::with('user')->findOrFail($id);
+
+        if ($request->user() && $request->user()->role === 'teacher' && $teacher->user_id !== $request->user()->id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Anda tidak memiliki akses untuk mengubah data guru ini.',
+            ], 403);
+        }
 
         $validated = $request->validate([
             'name'                => 'sometimes|string|max:255',

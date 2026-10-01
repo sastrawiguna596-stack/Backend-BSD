@@ -3,8 +3,12 @@
 namespace App\Http\Controllers;
 
 use App\Models\Classroom;
+use App\Models\ClassSchedule;
+use App\Models\ClassSession;
 use App\Models\Enrollment;
+use App\Models\Holiday;
 use App\Models\Student;
+use App\Models\Teacher;
 use App\Models\PaymentPlan;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -18,7 +22,26 @@ class EnrollmentController extends Controller
      */
     public function index(Request $request)
     {
+        $user = $request->user();
+        $isTeacher = $user && strtolower($user->role) === 'teacher';
+        $isParent = $user && strtolower($user->role) === 'parent';
+        $teacherId = null;
+
+        if ($isTeacher) {
+            $teacherId = Teacher::where('user_id', $user->id)->value('id') ?: '00000000-0000-0000-0000-000000000000';
+        }
+
         $query = Enrollment::with(['student', 'classroom', 'program', 'programLevel', 'paymentPlans'])
+            ->when($isParent, function ($q) use ($user) {
+                $q->whereHas('student.parents', function ($p) use ($user) {
+                    $p->where('user_id', $user->id);
+                });
+            })
+            ->when($isTeacher, function ($q) use ($teacherId) {
+                $q->whereHas('classroom.teachers', function ($t) use ($teacherId) {
+                    $t->where('teachers.id', $teacherId);
+                });
+            })
             ->when($request->student_id, function ($q) use ($request) {
                 $q->where('student_id', $request->student_id);
             })
@@ -63,7 +86,18 @@ class EnrollmentController extends Controller
         $classroom = Classroom::with('programLevel')->findOrFail($validated['classroom_id']);
 
         // ── Validasi 1: Siswa sudah ikut 2 program aktif? ──
-        $programId = $classroom->programLevel->program_id;
+        $programId = $classroom->programLevel ? $classroom->programLevel->program_id : null;
+        if (!$programId && $classroom->program_level_id) {
+            $level = \App\Models\ProgramLevel::find($classroom->program_level_id);
+            $programId = $level ? $level->program_id : null;
+        }
+
+        if (!$programId) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Kelas yang dipilih belum memiliki program atau level program yang valid.',
+            ], 422);
+        }
 
         // Cek apakah sudah enrolled di program yang sama
         $alreadyEnrolled = Enrollment::where('student_id', $student->id)
@@ -106,11 +140,12 @@ class EnrollmentController extends Controller
             ], 422);
         }
 
-        // ── Buat enrollment & generate payment plan secara transaksional ──
+        // ── Buat enrollment & generate payment plan serta sesi kelas secara transaksional ──
         $enrollment = null;
         $createdPlans = [];
+        $generatedSessions = [];
 
-        DB::transaction(function () use ($validated, $student, $classroom, $programId, &$enrollment, &$createdPlans) {
+        DB::transaction(function () use ($validated, $student, $classroom, $programId, &$enrollment, &$createdPlans, &$generatedSessions) {
             $enrollment = Enrollment::create([
                 'enrollment_code'   => 'ENR-' . strtoupper(Str::random(6)),
                 'student_id'        => $student->id,
@@ -198,13 +233,157 @@ class EnrollmentController extends Controller
                     $createdPlans[] = $plan;
                 }
             }
+
+            // ── Otomatis Generate Sesi Kalender Kelas Sesuai Paket & Jadwal ──
+            $generatedSessions = $this->autoGenerateSessionsForClassroom(
+                $classroom,
+                $validated['start_date'],
+                $totalSessions
+            );
         });
+
+        $sessionMsg = '';
+        if (!empty($generatedSessions['sessions_count']) && $generatedSessions['sessions_count'] > 0) {
+            $sessionMsg = ' dan ' . $generatedSessions['sessions_count'] . ' sesi absensi kelas otomatis dibuat di kalender.';
+        } elseif (!empty($generatedSessions['message'])) {
+            $sessionMsg = ' (' . $generatedSessions['message'] . ')';
+        }
 
         return response()->json([
             'success' => true,
-            'message' => 'Siswa berhasil didaftarkan dan ' . count($createdPlans) . ' tagihan otomatis dibuat.',
+            'message' => 'Siswa berhasil didaftarkan, ' . count($createdPlans) . ' rencana tagihan diterbitkan' . $sessionMsg,
             'data'    => $enrollment->load(['student', 'classroom', 'program', 'paymentPlans']),
+            'sessions_generated' => $generatedSessions,
         ], 201);
+    }
+
+    /**
+     * Otomatis generate sesi kelas di kalender jika belum lengkap.
+     */
+    private function autoGenerateSessionsForClassroom(Classroom $classroom, string $startDate, int $totalSessions): array
+    {
+        $schedules = ClassSchedule::where('classroom_id', $classroom->id)
+            ->where('is_active', true)
+            ->get();
+
+        if ($schedules->isEmpty()) {
+            return [
+                'sessions_count' => 0,
+                'sessions' => [],
+                'skipped_holidays' => [],
+                'skipped_conflicts' => [],
+                'message' => 'Kelas belum memiliki jadwal rutin.'
+            ];
+        }
+
+        // Hitung sesi yang sudah ada di kelas ini
+        $existingCount = ClassSession::where('classroom_id', $classroom->id)
+            ->where('status', '!=', 'cancelled')
+            ->count();
+
+        if ($existingCount >= $totalSessions) {
+            return [
+                'sessions_count' => 0,
+                'already_existing' => $existingCount,
+                'sessions' => [],
+                'message' => 'Sesi kelas sudah lengkap di kalender (' . $existingCount . ' sesi).'
+            ];
+        }
+
+        $sessionsCreated = [];
+        $skippedHolidays = [];
+        $skippedConflicts = [];
+
+        $maxSessionNumber = ClassSession::where('classroom_id', $classroom->id)->max('session_number') ?? 0;
+        $sessionNumber = $maxSessionNumber + 1;
+
+        // Mulai penelusuran tanggal dari startDate
+        $currentDate = Carbon::parse($startDate);
+        $safetyLimitDays = 180; // Cek maksimal 180 hari ke depan
+        $daysChecked = 0;
+
+        while (($existingCount + count($sessionsCreated)) < $totalSessions && $daysChecked < $safetyLimitDays) {
+            $currentDayOfWeekName = $currentDate->englishDayOfWeek; // e.g. "Monday"
+            $dateString = $currentDate->format('Y-m-d');
+
+            // Cari jadwal yang cocok di hari ini
+            $matchingSchedules = $schedules->filter(function ($sched) use ($currentDayOfWeekName, $dateString) {
+                if ($sched->day_of_week !== $currentDayOfWeekName) {
+                    return false;
+                }
+                if ($sched->effective_from && $sched->effective_from > $dateString) {
+                    return false;
+                }
+                if ($sched->effective_until && $sched->effective_until < $dateString) {
+                    return false;
+                }
+                return true;
+            });
+
+            foreach ($matchingSchedules as $schedule) {
+                if (($existingCount + count($sessionsCreated)) >= $totalSessions) {
+                    break;
+                }
+
+                // Cek apakah sesi untuk kelas dan jadwal ini sudah ada di tanggal tersebut
+                $alreadyExists = ClassSession::where('classroom_id', $classroom->id)
+                    ->where('session_date', $dateString)
+                    ->where('start_time', $schedule->start_time)
+                    ->where('status', '!=', 'cancelled')
+                    ->exists();
+
+                if ($alreadyExists) {
+                    continue;
+                }
+
+                // Cek hari libur
+                $isHoliday = Holiday::where('holiday_date', $dateString)
+                    ->where('is_active', true)
+                    ->exists();
+
+                if ($isHoliday) {
+                    $skippedHolidays[] = $dateString;
+                    continue;
+                }
+
+                // Cek bentrok jadwal
+                if (ClassSession::hasConflict(
+                    $schedule->classroom_id,
+                    $schedule->teacher_id,
+                    $dateString,
+                    $schedule->start_time,
+                    $schedule->end_time
+                )) {
+                    $skippedConflicts[] = $dateString;
+                    continue;
+                }
+
+                // Buat sesi
+                $session = ClassSession::create([
+                    'classroom_id'      => $schedule->classroom_id,
+                    'teacher_id'        => $schedule->teacher_id,
+                    'class_schedule_id' => $schedule->id,
+                    'session_number'    => $sessionNumber,
+                    'session_date'      => $dateString,
+                    'start_time'        => $schedule->start_time,
+                    'end_time'          => $schedule->end_time,
+                    'status'            => 'scheduled'
+                ]);
+
+                $sessionsCreated[] = $session;
+                $sessionNumber++;
+            }
+
+            $currentDate->addDay();
+            $daysChecked++;
+        }
+
+        return [
+            'sessions_count' => count($sessionsCreated),
+            'sessions' => $sessionsCreated,
+            'skipped_holidays' => $skippedHolidays,
+            'skipped_conflicts' => $skippedConflicts,
+        ];
     }
 
     /**

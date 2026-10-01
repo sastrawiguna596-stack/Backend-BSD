@@ -15,10 +15,28 @@ class ClassroomController extends Controller
      */
     public function index(Request $request)
     {
+        $user = $request->user();
+        $isTeacher = $user && strtolower($user->role) === 'teacher';
+        $teacherId = null;
+
+        if ($isTeacher) {
+            $teacherId = Teacher::where('user_id', $user->id)->value('id') ?: '00000000-0000-0000-0000-000000000000';
+        }
+
         $query = Classroom::with(['programLevel.program', 'teachers.user'])
             ->withCount(['enrollments as active_students_count' => function ($q) {
                 $q->where('status', 'active');
             }])
+            ->when($isTeacher, function ($q) use ($teacherId) {
+                $q->whereHas('teachers', function ($t) use ($teacherId) {
+                    $t->where('teachers.id', $teacherId);
+                });
+            })
+            ->when($request->filled('teacher_id') && !$isTeacher, function ($q) use ($request) {
+                $q->whereHas('teachers', function ($t) use ($request) {
+                    $t->where('teachers.id', $request->teacher_id);
+                });
+            })
             ->when($request->status, function ($q) use ($request) {
                 $q->where('status', $request->status);
             })

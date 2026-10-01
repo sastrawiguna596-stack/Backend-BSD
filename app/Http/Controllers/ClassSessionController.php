@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\ClassSession;
 use App\Models\StudentAttendance;
+use App\Models\Teacher;
 use App\Models\TeacherLogbook;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -11,9 +12,42 @@ use Carbon\Carbon;
 
 class ClassSessionController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
-        $sessions = ClassSession::with(['classroom', 'teacher', 'classSchedule'])->get();
+        $user = $request->user();
+        $isTeacher = $user && strtolower($user->role) === 'teacher';
+        $isParent = $user && strtolower($user->role) === 'parent';
+        $teacherId = null;
+
+        if ($isTeacher) {
+            $teacherId = Teacher::where('user_id', $user->id)->value('id') ?: '00000000-0000-0000-0000-000000000000';
+        }
+
+        $query = ClassSession::with(['classroom.programLevel.program', 'teacher.user', 'classSchedule', 'teacherLogbook'])
+            ->when($isTeacher, function ($q) use ($teacherId) {
+                $q->where('teacher_id', $teacherId);
+            })
+            ->when($isParent, function ($q) use ($user) {
+                $q->whereHas('classroom.enrollments', function ($enr) use ($user) {
+                    $enr->where('status', 'active')
+                        ->whereHas('student.parents', function ($p) use ($user) {
+                            $p->where('user_id', $user->id);
+                        });
+                });
+            })
+            ->when($request->filled('classroom_id'), function ($q) use ($request) {
+                $q->where('classroom_id', $request->classroom_id);
+            })
+            ->when($request->filled('teacher_id') && !$isTeacher, function ($q) use ($request) {
+                $q->where('teacher_id', $request->teacher_id);
+            })
+            ->when($request->filled('status'), function ($q) use ($request) {
+                $q->where('status', $request->status);
+            })
+            ->orderBy('session_date', 'asc')
+            ->orderBy('start_time', 'asc');
+
+        $sessions = $query->get();
         return response()->json(['success' => true, 'data' => $sessions]);
     }
 
@@ -95,6 +129,17 @@ class ClassSessionController extends Controller
     {
         $session = ClassSession::findOrFail($id);
 
+        if ($request->user() && $request->user()->role === 'teacher') {
+            $teacherId = $request->user()->teacher?->id;
+            $isAssigned = $session->teacher_id === $teacherId || $session->classroom->teachers()->where('teachers.id', $teacherId)->exists();
+            if (!$isAssigned) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Anda tidak memiliki akses untuk mereschedule sesi ini.'
+                ], 403);
+            }
+        }
+
         $validated = $request->validate([
             'session_date' => 'required|date',
             'start_time' => 'required|date_format:H:i',
@@ -138,6 +183,17 @@ class ClassSessionController extends Controller
     public function submitAttendanceAndLogbook(Request $request, string $id)
     {
         $session = ClassSession::findOrFail($id);
+
+        if ($request->user() && $request->user()->role === 'teacher') {
+            $teacherId = $request->user()->teacher?->id;
+            $isAssigned = $session->teacher_id === $teacherId || $session->classroom->teachers()->where('teachers.id', $teacherId)->exists();
+            if (!$isAssigned) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Anda tidak memiliki akses untuk mengisi absensi dan logbook sesi ini.'
+                ], 403);
+            }
+        }
 
         $validated = $request->validate([
             'students' => 'required|array',

@@ -6,6 +6,7 @@ use App\Models\Certificate;
 use App\Models\CertificateTemplate;
 use App\Models\FinalReport;
 use App\Models\Enrollment;
+use App\Models\Teacher;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 
@@ -16,13 +17,32 @@ class CertificateController extends Controller
      */
     public function index(Request $request)
     {
+        $user = $request->user();
+        $isTeacher = $user && strtolower($user->role) === 'teacher';
+        $isParent = $user && strtolower($user->role) === 'parent';
+        $teacherId = null;
+
+        if ($isTeacher) {
+            $teacherId = Teacher::where('user_id', $user->id)->value('id') ?: '00000000-0000-0000-0000-000000000000';
+        }
+
         $query = Certificate::with([
             'student',
             'enrollment.programLevel',
             'enrollment.classroom',
             'finalReport',
             'generatedBy:id,name,email,role'
-        ]);
+        ])
+        ->when($isParent, function ($q) use ($user) {
+            $q->whereHas('student.parents', function ($p) use ($user) {
+                $p->where('user_id', $user->id);
+            });
+        })
+        ->when($isTeacher, function ($q) use ($teacherId) {
+            $q->whereHas('enrollment.classroom.teachers', function ($t) use ($teacherId) {
+                $t->where('teachers.id', $teacherId);
+            });
+        });
 
         if ($request->filled('student_id')) {
             $query->where('student_id', $request->student_id);

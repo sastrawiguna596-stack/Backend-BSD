@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Teacher;
 use App\Models\TeacherLogbook;
 use Illuminate\Http\Request;
 
@@ -13,8 +14,19 @@ class TeacherLogbookController extends Controller
      */
     public function index(Request $request)
     {
-        $query = TeacherLogbook::with(['teacher.user', 'classSession'])
-            ->when($request->teacher_id, fn($q) => $q->where('teacher_id', $request->teacher_id))
+        $user = $request->user();
+        $isTeacher = $user && strtolower($user->role) === 'teacher';
+        $teacherId = null;
+
+        if ($isTeacher) {
+            $teacherId = Teacher::where('user_id', $user->id)->value('id') ?: '00000000-0000-0000-0000-000000000000';
+        }
+
+        $query = TeacherLogbook::with(['teacher.user', 'classSession.classroom'])
+            ->when($isTeacher, function ($q) use ($teacherId) {
+                $q->where('teacher_id', $teacherId);
+            })
+            ->when($request->filled('teacher_id') && !$isTeacher, fn($q) => $q->where('teacher_id', $request->teacher_id))
             ->when($request->class_session_id, fn($q) => $q->where('class_session_id', $request->class_session_id))
             ->when($request->status, fn($q) => $q->where('status', $request->status))
             ->latest();
@@ -34,7 +46,7 @@ class TeacherLogbookController extends Controller
     {
         $validated = $request->validate([
             'class_session_id' => 'required|uuid|exists:class_sessions,id',
-            'teacher_id'       => 'required|uuid|exists:teachers,id',
+            'teacher_id'       => 'nullable|uuid|exists:teachers,id',
             'check_in'         => 'required|date',
             'check_out'        => 'required|date|after_or_equal:check_in',
             'teaching_minutes' => 'required|integer|min:1',
@@ -42,6 +54,15 @@ class TeacherLogbookController extends Controller
             'notes'            => 'nullable|string',
             'status'           => 'sometimes|string|in:draft,submitted,verified',
         ]);
+
+        if ($request->user() && $request->user()->role === 'teacher') {
+            $validated['teacher_id'] = Teacher::where('user_id', $request->user()->id)->value('id');
+        } elseif (empty($validated['teacher_id'])) {
+            return response()->json([
+                'success' => false,
+                'message' => 'teacher_id wajib diisi.'
+            ], 422);
+        }
 
         $validated['status']       = $validated['status'] ?? 'submitted';
         $validated['submitted_at'] = now();
@@ -58,10 +79,20 @@ class TeacherLogbookController extends Controller
     /**
      * Tampilkan detail satu logbook.
      */
-    public function show(string $id)
+    public function show(Request $request, string $id)
     {
         $logbook = TeacherLogbook::with(['teacher.user', 'classSession.classroom'])
             ->findOrFail($id);
+
+        if ($request->user() && $request->user()->role === 'teacher') {
+            $myTeacherId = Teacher::where('user_id', $request->user()->id)->value('id');
+            if ($logbook->teacher_id !== $myTeacherId) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Anda tidak memiliki akses ke logbook ini.',
+                ], 403);
+            }
+        }
 
         return response()->json([
             'success' => true,
@@ -75,6 +106,16 @@ class TeacherLogbookController extends Controller
     public function update(Request $request, string $id)
     {
         $logbook = TeacherLogbook::findOrFail($id);
+
+        if ($request->user() && $request->user()->role === 'teacher') {
+            $myTeacherId = Teacher::where('user_id', $request->user()->id)->value('id');
+            if ($logbook->teacher_id !== $myTeacherId) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Anda tidak memiliki akses untuk mengubah logbook ini.',
+                ], 403);
+            }
+        }
 
         $validated = $request->validate([
             'check_in'         => 'sometimes|date',
@@ -97,9 +138,20 @@ class TeacherLogbookController extends Controller
     /**
      * Hapus logbook.
      */
-    public function destroy(string $id)
+    public function destroy(Request $request, string $id)
     {
         $logbook = TeacherLogbook::findOrFail($id);
+
+        if ($request->user() && $request->user()->role === 'teacher') {
+            $myTeacherId = Teacher::where('user_id', $request->user()->id)->value('id');
+            if ($logbook->teacher_id !== $myTeacherId) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Anda tidak memiliki akses untuk menghapus logbook ini.',
+                ], 403);
+            }
+        }
+
         $logbook->delete();
 
         return response()->json([
