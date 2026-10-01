@@ -33,7 +33,7 @@ class PaymentController extends Controller
             'creator',
             'verifier',
         ])
-        ->when($request->user() && $request->user()->role === 'parent', function ($q) use ($request) {
+        ->when($request->user() && strtolower($request->user()->role) === 'parent', function ($q) use ($request) {
             $q->where(function ($sub) use ($request) {
                 $sub->where('created_by', $request->user()->id)
                     ->orWhereHas('enrollment.student.parents', function ($p) use ($request) {
@@ -93,6 +93,16 @@ class PaymentController extends Controller
         $enrollment = $paymentPlan->enrollment;
         $student = $enrollment->student;
         $user = $request->user();
+
+        if ($user && strtolower($user->role) === 'parent') {
+            $isAuthorizedParent = $student->parents()->where('user_id', $user->id)->exists();
+            if (!$isAuthorizedParent) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Anda tidak memiliki hak untuk melakukan pembayaran pada tagihan siswa ini.'
+                ], 403);
+            }
+        }
 
         $isPelunasan = ($validated['payment_type'] ?? 'per_pertemuan') === 'pelunasan';
 
@@ -305,7 +315,7 @@ class PaymentController extends Controller
     /**
      * Detail riwayat pembayaran
      */
-    public function show(string $id)
+    public function show(Request $request, string $id)
     {
         $payment = Payment::with([
             'paymentPlan',
@@ -315,6 +325,19 @@ class PaymentController extends Controller
             'creator',
             'verifier',
         ])->findOrFail($id);
+
+        $user = $request->user();
+        if ($user && strtolower($user->role) === 'parent') {
+            $isAuthorized = $payment->created_by === $user->id
+                || ($payment->enrollment && $payment->enrollment->student && $payment->enrollment->student->parents()->where('user_id', $user->id)->exists());
+
+            if (!$isAuthorized) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Anda tidak memiliki akses ke data pembayaran ini.'
+                ], 403);
+            }
+        }
 
         return response()->json([
             'success' => true,

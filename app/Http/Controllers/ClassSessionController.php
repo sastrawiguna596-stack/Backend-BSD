@@ -91,9 +91,37 @@ class ClassSessionController extends Controller
         ], 201);
     }
 
-    public function show(string $id)
+    public function show(Request $request, string $id)
     {
-        $session = ClassSession::with(['classroom', 'teacher', 'classSchedule'])->findOrFail($id);
+        $session = ClassSession::with(['classroom.programLevel.program', 'teacher.user', 'classSchedule', 'teacherLogbook'])->findOrFail($id);
+        $user = $request->user();
+
+        if ($user && strtolower($user->role) === 'teacher') {
+            $teacherId = Teacher::where('user_id', $user->id)->value('id');
+            if ($session->teacher_id !== $teacherId) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Anda tidak memiliki akses ke sesi ini.'
+                ], 403);
+            }
+        }
+
+        if ($user && strtolower($user->role) === 'parent') {
+            $isEnrolledParent = $session->classroom->enrollments()
+                ->where('status', 'active')
+                ->whereHas('student.parents', function ($p) use ($user) {
+                    $p->where('user_id', $user->id);
+                })
+                ->exists();
+
+            if (!$isEnrolledParent) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Anda tidak memiliki akses ke sesi kelas ini.'
+                ], 403);
+            }
+        }
+
         return response()->json(['success' => true, 'data' => $session]);
     }
 
@@ -128,11 +156,11 @@ class ClassSessionController extends Controller
     public function reschedule(Request $request, string $id)
     {
         $session = ClassSession::findOrFail($id);
+        $user = $request->user();
 
-        if ($request->user() && $request->user()->role === 'teacher') {
-            $teacherId = $request->user()->teacher?->id;
-            $isAssigned = $session->teacher_id === $teacherId || $session->classroom->teachers()->where('teachers.id', $teacherId)->exists();
-            if (!$isAssigned) {
+        if ($user && strtolower($user->role) === 'teacher') {
+            $teacherId = Teacher::where('user_id', $user->id)->value('id');
+            if ($session->teacher_id !== $teacherId) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Anda tidak memiliki akses untuk mereschedule sesi ini.'
@@ -183,11 +211,11 @@ class ClassSessionController extends Controller
     public function submitAttendanceAndLogbook(Request $request, string $id)
     {
         $session = ClassSession::findOrFail($id);
+        $user = $request->user();
 
-        if ($request->user() && $request->user()->role === 'teacher') {
-            $teacherId = $request->user()->teacher?->id;
-            $isAssigned = $session->teacher_id === $teacherId || $session->classroom->teachers()->where('teachers.id', $teacherId)->exists();
-            if (!$isAssigned) {
+        if ($user && strtolower($user->role) === 'teacher') {
+            $teacherId = Teacher::where('user_id', $user->id)->value('id');
+            if ($session->teacher_id !== $teacherId) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Anda tidak memiliki akses untuk mengisi absensi dan logbook sesi ini.'

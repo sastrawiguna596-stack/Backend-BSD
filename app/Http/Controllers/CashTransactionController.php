@@ -27,7 +27,7 @@ class CashTransactionController extends Controller
             'submitter:id,name,email',
             'verifier:id,name,email',
         ])
-        ->when($user->role === 'parent', function ($q) use ($user) {
+        ->when($user && strtolower($user->role) === 'parent', function ($q) use ($user) {
             $q->where('submitted_by', $user->id);
         })
         ->when($request->filled('status'), function ($q) use ($request) {
@@ -68,7 +68,7 @@ class CashTransactionController extends Controller
             'verifier:id,name,email',
         ])->findOrFail($id);
 
-        if ($user->role === 'parent' && $cashTransaction->submitted_by !== $user->id) {
+        if ($user && strtolower($user->role) === 'parent' && $cashTransaction->submitted_by !== $user->id) {
             return response()->json([
                 'success' => false,
                 'message' => 'Akses ditolak. Anda hanya dapat melihat pengajuan pembayaran milik Anda.',
@@ -120,6 +120,16 @@ class CashTransactionController extends Controller
         $user = $request->user();
         $enrollment = $paymentPlan->enrollment;
         $student = $enrollment->student;
+
+        if ($user && strtolower($user->role) === 'parent') {
+            $isAuthorizedParent = $student && $student->parents()->where('user_id', $user->id)->exists();
+            if (!$isAuthorizedParent) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Anda tidak memiliki hak untuk mengajukan pembayaran pada tagihan siswa ini.'
+                ], 403);
+            }
+        }
 
         // Upload bukti fisik opsional jika ada
         $proofPath = null;

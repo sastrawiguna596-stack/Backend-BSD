@@ -44,6 +44,9 @@ class TeacherLogbookController extends Controller
      */
     public function store(Request $request)
     {
+        $user = $request->user();
+        $isTeacher = $user && strtolower($user->role) === 'teacher';
+
         $validated = $request->validate([
             'class_session_id' => 'required|uuid|exists:class_sessions,id',
             'teacher_id'       => 'nullable|uuid|exists:teachers,id',
@@ -55,8 +58,16 @@ class TeacherLogbookController extends Controller
             'status'           => 'sometimes|string|in:draft,submitted,verified',
         ]);
 
-        if ($request->user() && $request->user()->role === 'teacher') {
-            $validated['teacher_id'] = Teacher::where('user_id', $request->user()->id)->value('id');
+        if ($isTeacher) {
+            $teacherId = Teacher::where('user_id', $user->id)->value('id');
+            $session = \App\Models\ClassSession::find($validated['class_session_id']);
+            if (!$session || $session->teacher_id !== $teacherId) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Anda tidak memiliki akses untuk membuat logbook pada sesi kelas ini.'
+                ], 403);
+            }
+            $validated['teacher_id'] = $teacherId;
         } elseif (empty($validated['teacher_id'])) {
             return response()->json([
                 'success' => false,
@@ -84,8 +95,9 @@ class TeacherLogbookController extends Controller
         $logbook = TeacherLogbook::with(['teacher.user', 'classSession.classroom'])
             ->findOrFail($id);
 
-        if ($request->user() && $request->user()->role === 'teacher') {
-            $myTeacherId = Teacher::where('user_id', $request->user()->id)->value('id');
+        $user = $request->user();
+        if ($user && strtolower($user->role) === 'teacher') {
+            $myTeacherId = Teacher::where('user_id', $user->id)->value('id');
             if ($logbook->teacher_id !== $myTeacherId) {
                 return response()->json([
                     'success' => false,
@@ -106,9 +118,10 @@ class TeacherLogbookController extends Controller
     public function update(Request $request, string $id)
     {
         $logbook = TeacherLogbook::findOrFail($id);
+        $user = $request->user();
 
-        if ($request->user() && $request->user()->role === 'teacher') {
-            $myTeacherId = Teacher::where('user_id', $request->user()->id)->value('id');
+        if ($user && strtolower($user->role) === 'teacher') {
+            $myTeacherId = Teacher::where('user_id', $user->id)->value('id');
             if ($logbook->teacher_id !== $myTeacherId) {
                 return response()->json([
                     'success' => false,
@@ -141,9 +154,10 @@ class TeacherLogbookController extends Controller
     public function destroy(Request $request, string $id)
     {
         $logbook = TeacherLogbook::findOrFail($id);
+        $user = $request->user();
 
-        if ($request->user() && $request->user()->role === 'teacher') {
-            $myTeacherId = Teacher::where('user_id', $request->user()->id)->value('id');
+        if ($user && strtolower($user->role) === 'teacher') {
+            $myTeacherId = Teacher::where('user_id', $user->id)->value('id');
             if ($logbook->teacher_id !== $myTeacherId) {
                 return response()->json([
                     'success' => false,

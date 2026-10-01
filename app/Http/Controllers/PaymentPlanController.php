@@ -50,7 +50,7 @@ class PaymentPlanController extends Controller
             'payments',
             'cashTransactions',
         ])
-        ->when($request->user() && $request->user()->role === 'parent', function ($q) use ($request) {
+        ->when($request->user() && strtolower($request->user()->role) === 'parent', function ($q) use ($request) {
             $q->where(function ($sub) use ($request) {
                 $sub->whereHas('enrollment.student.parents', function ($p) use ($request) {
                     $p->where('user_id', $request->user()->id);
@@ -213,14 +213,30 @@ class PaymentPlanController extends Controller
     /**
      * Menampilkan detail satu tagihan.
      */
-    public function show(string $id)
+    public function show(Request $request, string $id)
     {
         $paymentPlan = PaymentPlan::with([
             'enrollment.student',
             'enrollment.program',
             'enrollment.programLevel',
-            'payments'
+            'payments',
+            'cashTransactions',
         ])->findOrFail($id);
+
+        $user = $request->user();
+        if ($user && strtolower($user->role) === 'parent') {
+            $isOwner = $paymentPlan->enrollment?->student?->parents()
+                ->where('user_id', $user->id)
+                ->exists()
+                || $paymentPlan->payments()->where('created_by', $user->id)->exists();
+
+            if (!$isOwner) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Anda tidak memiliki akses ke tagihan ini.'
+                ], 403);
+            }
+        }
 
         return response()->json([
             'success' => true,

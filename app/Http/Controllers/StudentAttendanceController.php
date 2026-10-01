@@ -52,12 +52,26 @@ class StudentAttendanceController extends Controller
      */
     public function store(Request $request)
     {
+        $user = $request->user();
+        $isTeacher = $user && strtolower($user->role) === 'teacher';
+
         $validated = $request->validate([
             'class_session_id'  => 'required|uuid|exists:class_sessions,id',
             'student_id'        => 'required|uuid|exists:students,id',
             'attendance_status' => 'required|string|in:present,absent,late,excused',
             'notes'             => 'nullable|string',
         ]);
+
+        if ($isTeacher) {
+            $teacherId = Teacher::where('user_id', $user->id)->value('id');
+            $session = \App\Models\ClassSession::find($validated['class_session_id']);
+            if (!$session || $session->teacher_id !== $teacherId) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Anda tidak memiliki akses untuk mencatat absensi pada sesi kelas ini.'
+                ], 403);
+            }
+        }
 
         $validated['recorded_at'] = now();
         $validated['recorded_by'] = $request->user()?->id;
@@ -74,10 +88,34 @@ class StudentAttendanceController extends Controller
     /**
      * Tampilkan detail satu data absensi.
      */
-    public function show(string $id)
+    public function show(Request $request, string $id)
     {
         $attendance = StudentAttendance::with(['student', 'classSession.classroom', 'classSession.teacher.user'])
             ->findOrFail($id);
+
+        $user = $request->user();
+        if ($user && strtolower($user->role) === 'teacher') {
+            $teacherId = Teacher::where('user_id', $user->id)->value('id');
+            if ($attendance->classSession?->teacher_id !== $teacherId) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Anda tidak memiliki akses ke data absensi ini.'
+                ], 403);
+            }
+        }
+
+        if ($user && strtolower($user->role) === 'parent') {
+            $isParentOfStudent = $attendance->student?->parents()
+                ->where('user_id', $user->id)
+                ->exists();
+
+            if (!$isParentOfStudent) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Anda tidak memiliki akses ke data absensi ini.'
+                ], 403);
+            }
+        }
 
         return response()->json([
             'success' => true,
@@ -90,7 +128,18 @@ class StudentAttendanceController extends Controller
      */
     public function update(Request $request, string $id)
     {
-        $attendance = StudentAttendance::findOrFail($id);
+        $attendance = StudentAttendance::with('classSession')->findOrFail($id);
+        $user = $request->user();
+
+        if ($user && strtolower($user->role) === 'teacher') {
+            $teacherId = Teacher::where('user_id', $user->id)->value('id');
+            if ($attendance->classSession?->teacher_id !== $teacherId) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Anda tidak memiliki akses untuk mengubah absensi ini.'
+                ], 403);
+            }
+        }
 
         $validated = $request->validate([
             'attendance_status' => 'sometimes|string|in:present,absent,late,excused',
@@ -109,9 +158,21 @@ class StudentAttendanceController extends Controller
     /**
      * Hapus data absensi.
      */
-    public function destroy(string $id)
+    public function destroy(Request $request, string $id)
     {
-        $attendance = StudentAttendance::findOrFail($id);
+        $attendance = StudentAttendance::with('classSession')->findOrFail($id);
+        $user = $request->user();
+
+        if ($user && strtolower($user->role) === 'teacher') {
+            $teacherId = Teacher::where('user_id', $user->id)->value('id');
+            if ($attendance->classSession?->teacher_id !== $teacherId) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Anda tidak memiliki akses untuk menghapus absensi ini.'
+                ], 403);
+            }
+        }
+
         $attendance->delete();
 
         return response()->json([

@@ -7,6 +7,7 @@ use App\Models\ClassSession;
 use App\Models\Holiday;
 use App\Models\Teacher;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
 
 class ClassScheduleController extends Controller
@@ -82,9 +83,23 @@ class ClassScheduleController extends Controller
         ], 201);
     }
 
-    public function show(string $id)
+    public function show(Request $request, string $id)
     {
-        $schedule = ClassSchedule::with(['classroom', 'teacher'])->findOrFail($id);
+        $user = $request->user();
+        $isTeacher = $user && strtolower($user->role) === 'teacher';
+
+        $schedule = ClassSchedule::with(['classroom.programLevel.program', 'teacher.user'])->findOrFail($id);
+
+        if ($isTeacher) {
+            $teacherId = Teacher::where('user_id', $user->id)->value('id');
+            if ($schedule->teacher_id !== $teacherId) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Anda tidak memiliki akses ke data jadwal ini.'
+                ], 403);
+            }
+        }
+
         return response()->json(['success' => true, 'data' => $schedule]);
     }
 
@@ -180,46 +195,56 @@ class ClassScheduleController extends Controller
             $sessionNumber = $maxExistingSession + 1;
         }
 
-        while (count($sessionsCreated) < $totalSessions) {
-            $dateString = $currentDate->format('Y-m-d');
+        DB::transaction(function () use (
+            $totalSessions,
+            $schedule,
+            &$currentDate,
+            &$sessionsCreated,
+            &$skippedHolidays,
+            &$conflicts,
+            &$sessionNumber
+        ) {
+            while (count($sessionsCreated) < $totalSessions) {
+                $dateString = $currentDate->format('Y-m-d');
 
-            $isHoliday = Holiday::where('holiday_date', $dateString)
-                            ->where('is_active', true)
-                            ->exists();
+                $isHoliday = Holiday::where('holiday_date', $dateString)
+                                ->where('is_active', true)
+                                ->exists();
 
-            if ($isHoliday) {
-                $skippedHolidays[] = $dateString;
+                if ($isHoliday) {
+                    $skippedHolidays[] = $dateString;
+                    $currentDate->addWeek();
+                    continue;
+                }
+
+                if (ClassSession::hasConflict(
+                    $schedule->classroom_id,
+                    $schedule->teacher_id,
+                    $dateString,
+                    $schedule->start_time,
+                    $schedule->end_time
+                )) {
+                    $conflicts[] = $dateString;
+                    $currentDate->addWeek();
+                    continue;
+                }
+
+                $session = ClassSession::create([
+                    'classroom_id' => $schedule->classroom_id,
+                    'teacher_id' => $schedule->teacher_id,
+                    'class_schedule_id' => $schedule->id,
+                    'session_number' => $sessionNumber,
+                    'session_date' => $dateString,
+                    'start_time' => $schedule->start_time,
+                    'end_time' => $schedule->end_time,
+                    'status' => 'scheduled'
+                ]);
+
+                $sessionsCreated[] = $session;
+                $sessionNumber++;
                 $currentDate->addWeek();
-                continue;
             }
-
-            if (ClassSession::hasConflict(
-                $schedule->classroom_id,
-                $schedule->teacher_id,
-                $dateString,
-                $schedule->start_time,
-                $schedule->end_time
-            )) {
-                $conflicts[] = $dateString;
-                $currentDate->addWeek();
-                continue;
-            }
-
-            $session = ClassSession::create([
-                'classroom_id' => $schedule->classroom_id,
-                'teacher_id' => $schedule->teacher_id,
-                'class_schedule_id' => $schedule->id,
-                'session_number' => $sessionNumber,
-                'session_date' => $dateString,
-                'start_time' => $schedule->start_time,
-                'end_time' => $schedule->end_time,
-                'status' => 'scheduled'
-            ]);
-
-            $sessionsCreated[] = $session;
-            $sessionNumber++;
-            $currentDate->addWeek();
-        }
+        });
 
         return response()->json([
             'success' => true,

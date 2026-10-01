@@ -38,9 +38,10 @@ class TeacherPayrollController extends Controller
     public function show(Request $request, string $id)
     {
         $payroll = TeacherPayroll::with('teacher.user')->findOrFail($id);
+        $user = $request->user();
 
-        if ($request->user() && $request->user()->role === 'teacher') {
-            $myTeacherId = Teacher::where('user_id', $request->user()->id)->value('id');
+        if ($user && strtolower($user->role) === 'teacher') {
+            $myTeacherId = Teacher::where('user_id', $user->id)->value('id');
             if ($payroll->teacher_id !== $myTeacherId) {
                 return response()->json([
                     'success' => false,
