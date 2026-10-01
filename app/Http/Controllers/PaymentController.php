@@ -33,6 +33,14 @@ class PaymentController extends Controller
             'creator',
             'verifier',
         ])
+        ->when($request->user() && $request->user()->role === 'parent', function ($q) use ($request) {
+            $q->where(function ($sub) use ($request) {
+                $sub->where('created_by', $request->user()->id)
+                    ->orWhereHas('enrollment.student.parents', function ($p) use ($request) {
+                        $p->where('user_id', $request->user()->id);
+                    });
+            });
+        })
         ->when($request->filled('status'), function ($q) use ($request) {
             $q->where('payment_status', $request->status);
         })

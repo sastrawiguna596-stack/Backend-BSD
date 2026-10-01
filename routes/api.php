@@ -121,6 +121,7 @@ Route::prefix('v1')->group(function () {
             Route::delete('holidays/{holiday}',          [HolidayController::class, 'destroy']);
 
             Route::apiResource('inventories', InventoryController::class);
+            Route::apiResource('inventory', InventoryController::class);
 
             Route::post('payment-plans/generate',        [PaymentPlanController::class, 'generateForEnrollment']);
             Route::post('payment-plans',                 [PaymentPlanController::class, 'store']);
@@ -129,8 +130,8 @@ Route::prefix('v1')->group(function () {
             Route::delete('payment-plans/{payment_plan}',[PaymentPlanController::class, 'destroy']);
 
             // --- Verifikasi Pembayaran Tunai (Admin / Owner Only) ---
-            Route::post('cash-transactions/{cashTransaction}/confirm', [CashTransactionController::class, 'confirm']);
-            Route::post('cash-transactions/{cashTransaction}/reject',  [CashTransactionController::class, 'reject']);
+            Route::post('cash-transactions/{id}/confirm', [CashTransactionController::class, 'confirm']);
+            Route::post('cash-transactions/{id}/reject',  [CashTransactionController::class, 'reject']);
 
             // --- Dashboard & Laporan Keuangan (Hari 7 - Admin / Owner Only) ---
             Route::get('finance/dashboard',             [FinanceReportController::class, 'dashboard']);
