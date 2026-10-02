@@ -45,7 +45,16 @@ class TeacherLogbookController extends Controller
     public function store(Request $request)
     {
         $user = $request->user();
-        $isTeacher = $user && strtolower($user->role) === 'teacher';
+        $role = $user ? strtolower($user->role) : '';
+
+        if ($role === 'parent') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Orang tua tidak memiliki hak akses ke logbook pengajar.'
+            ], 403);
+        }
+
+        $isTeacher = $role === 'teacher';
 
         $validated = $request->validate([
             'class_session_id' => 'required|uuid|exists:class_sessions,id',
@@ -119,8 +128,16 @@ class TeacherLogbookController extends Controller
     {
         $logbook = TeacherLogbook::findOrFail($id);
         $user = $request->user();
+        $role = $user ? strtolower($user->role) : '';
 
-        if ($user && strtolower($user->role) === 'teacher') {
+        if ($role === 'parent') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Orang tua tidak memiliki hak akses ke logbook pengajar.'
+            ], 403);
+        }
+
+        if ($role === 'teacher') {
             $myTeacherId = Teacher::where('user_id', $user->id)->value('id');
             if ($logbook->teacher_id !== $myTeacherId) {
                 return response()->json([
@@ -155,8 +172,16 @@ class TeacherLogbookController extends Controller
     {
         $logbook = TeacherLogbook::findOrFail($id);
         $user = $request->user();
+        $role = $user ? strtolower($user->role) : '';
 
-        if ($user && strtolower($user->role) === 'teacher') {
+        if ($role === 'parent') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Orang tua tidak memiliki hak akses ke logbook pengajar.'
+            ], 403);
+        }
+
+        if ($role === 'teacher') {
             $myTeacherId = Teacher::where('user_id', $user->id)->value('id');
             if ($logbook->teacher_id !== $myTeacherId) {
                 return response()->json([

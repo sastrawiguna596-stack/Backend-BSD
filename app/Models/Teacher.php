@@ -23,4 +23,19 @@ class Teacher extends Model
                     ->withPivot('effective_from', 'effective_until', 'role')
                     ->withTimestamps();
     }
+
+    public function hourlyRates()
+    {
+        return $this->hasMany(TeacherHourlyRate::class);
+    }
+
+    public function bonuses()
+    {
+        return $this->hasMany(TeacherBonus::class);
+    }
+
+    public function payrolls()
+    {
+        return $this->hasMany(TeacherPayroll::class);
+    }
 }

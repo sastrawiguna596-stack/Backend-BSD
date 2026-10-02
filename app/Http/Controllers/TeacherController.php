@@ -42,7 +42,7 @@ class TeacherController extends Controller
         $user = $request->user();
         $isTeacher = $user && strtolower($user->role) === 'teacher';
 
-        $query = Teacher::with('user')
+        $query = Teacher::with(['user', 'hourlyRates'])
             ->when($isTeacher, function ($q) use ($user) {
                 $q->where('user_id', $user->id);
             })
@@ -117,7 +117,7 @@ class TeacherController extends Controller
      */
     public function show(Request $request, string $id)
     {
-        $teacher = Teacher::with('user')->findOrFail($id);
+        $teacher = Teacher::with(['user', 'hourlyRates'])->findOrFail($id);
 
         if ($request->user() && $request->user()->role === 'teacher' && $teacher->user_id !== $request->user()->id) {
             return response()->json([
@@ -137,7 +137,7 @@ class TeacherController extends Controller
      */
     public function update(Request $request, string $id)
     {
-        $teacher = Teacher::with('user')->findOrFail($id);
+        $teacher = Teacher::with(['user', 'hourlyRates'])->findOrFail($id);
 
         if ($request->user() && $request->user()->role === 'teacher' && $teacher->user_id !== $request->user()->id) {
             return response()->json([
@@ -155,9 +155,10 @@ class TeacherController extends Controller
             'bank_account_name'   => 'nullable|string|max:255',
             'bank_account_number' => 'nullable|string|max:50',
             'is_active'           => 'sometimes|boolean',
+            'hourly_rate'         => 'sometimes|numeric|min:0',
         ]);
 
-        DB::transaction(function () use ($teacher, $validated) {
+        DB::transaction(function () use ($teacher, $validated, $request) {
             // Update data akun user
             $userFields = array_filter([
                 'name'          => $validated['name'] ?? null,
@@ -178,12 +179,22 @@ class TeacherController extends Controller
                 'bank_account_number' => $validated['bank_account_number'] ?? null,
                 'is_active'           => $validated['is_active'] ?? null,
             ], fn($v) => ! is_null($v)));
+
+            // Update atau catat tarif per jam baru
+            if (isset($validated['hourly_rate'])) {
+                \App\Models\TeacherHourlyRate::create([
+                    'teacher_id'     => $teacher->id,
+                    'hourly_rate'    => $validated['hourly_rate'],
+                    'effective_from' => now()->toDateString(),
+                    'updated_by'     => $request->user()?->id,
+                ]);
+            }
         });
 
         return response()->json([
             'success' => true,
             'message' => 'Data guru berhasil diperbarui.',
-            'data'    => $teacher->fresh('user'),
+            'data'    => $teacher->fresh(['user', 'hourlyRates']),
         ]);
     }
 

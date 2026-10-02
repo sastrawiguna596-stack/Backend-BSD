@@ -3,9 +3,18 @@
 namespace App\Http\Controllers;
 
 use App\Enums\StudentStatus;
+use App\Models\Assessment;
+use App\Models\CashTransaction;
+use App\Models\Certificate;
+use App\Models\Enrollment;
+use App\Models\FinalReport;
+use App\Models\Payment;
+use App\Models\PaymentPlan;
 use App\Models\Student;
+use App\Models\StudentAttendance;
 use App\Models\Teacher;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 class StudentController extends Controller
@@ -65,6 +74,26 @@ class StudentController extends Controller
      */
     public function store(Request $request)
     {
+        $statusMap = [
+            'aktif'       => 'active',
+            'active'      => 'active',
+            'percobaan'   => 'trial',
+            'trial'       => 'trial',
+            'cuti'        => 'on_leave',
+            'on_leave'    => 'on_leave',
+            'tidak aktif' => 'inactive',
+            'inactive'    => 'inactive',
+            'lulus'       => 'graduated',
+            'graduated'   => 'graduated',
+        ];
+
+        if ($request->filled('status')) {
+            $rawStatus = strtolower(trim((string)$request->status));
+            if (isset($statusMap[$rawStatus])) {
+                $request->merge(['status' => $statusMap[$rawStatus]]);
+            }
+        }
+
         $validated = $request->validate([
             'full_name'    => 'required|string|max:255',
             'birth_date'   => 'nullable|date',
@@ -106,6 +135,26 @@ class StudentController extends Controller
     {
         $student = Student::findOrFail($id);
 
+        $statusMap = [
+            'aktif'       => 'active',
+            'active'      => 'active',
+            'percobaan'   => 'trial',
+            'trial'       => 'trial',
+            'cuti'        => 'on_leave',
+            'on_leave'    => 'on_leave',
+            'tidak aktif' => 'inactive',
+            'inactive'    => 'inactive',
+            'lulus'       => 'graduated',
+            'graduated'   => 'graduated',
+        ];
+
+        if ($request->filled('status')) {
+            $rawStatus = strtolower(trim((string)$request->status));
+            if (isset($statusMap[$rawStatus])) {
+                $request->merge(['status' => $statusMap[$rawStatus]]);
+            }
+        }
+
         $validated = $request->validate([
             'full_name'    => 'sometimes|string|max:255',
             'birth_date'   => 'nullable|date',
@@ -125,17 +174,55 @@ class StudentController extends Controller
     }
 
     /**
-     * Nonaktifkan siswa (set status = inactive).
-     * Data historis belajar & pembayaran tetap aman.
+     * Hapus siswa beserta seluruh relasi terkait secara permanen.
      */
     public function destroy(string $id)
     {
         $student = Student::findOrFail($id);
-        $student->update(['status' => StudentStatus::Inactive->value]);
+
+        $hasPaidTransactions = Payment::where('student_id', $student->id)->where('status', 'paid')->exists()
+            || CashTransaction::where('student_id', $student->id)->where('status', 'confirmed')->exists();
+
+        if ($hasPaidTransactions) {
+            // Demi menjaga integritas laporan keuangan dan audit trail,
+            // siswa dengan transaksi sah dinonaktifkan alih-alih dihapus permanen.
+            $student->update(['status' => 'inactive']);
+            return response()->json([
+                'success' => true,
+                'message' => 'Siswa memiliki riwayat transaksi keuangan yang telah dibayar. Status siswa dinonaktifkan demi menjaga integritas buku kas.',
+            ]);
+        }
+
+        DB::transaction(function () use ($student) {
+            // 1. Lepas relasi orang tua (pivot parent_students)
+            $student->parents()->detach();
+
+            // 2. Hapus data sertifikat & laporan akhir
+            Certificate::where('student_id', $student->id)->delete();
+            FinalReport::where('student_id', $student->id)->delete();
+
+            // 3. Hapus data penilaian & absensi siswa
+            Assessment::where('student_id', $student->id)->delete();
+            StudentAttendance::where('student_id', $student->id)->delete();
+
+            // 4. Hapus data transaksi keuangan & tagihan belum lunas
+            CashTransaction::where('student_id', $student->id)->delete();
+            Payment::where('student_id', $student->id)->delete();
+
+            // 5. Hapus payment plans di bawah enrollments siswa
+            $enrollmentIds = Enrollment::where('student_id', $student->id)->pluck('id');
+            if ($enrollmentIds->isNotEmpty()) {
+                PaymentPlan::whereIn('enrollment_id', $enrollmentIds)->delete();
+                Enrollment::whereIn('id', $enrollmentIds)->delete();
+            }
+
+            // 6. Hapus record siswa
+            $student->delete();
+        });
 
         return response()->json([
             'success' => true,
-            'message' => 'Siswa berhasil dinonaktifkan.',
+            'message' => 'Data siswa berhasil dihapus secara permanen.',
         ]);
     }
 }

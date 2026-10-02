@@ -80,6 +80,16 @@ class CertificateController extends Controller
      */
     public function store(Request $request)
     {
+        $user = $request->user();
+        $role = $user ? strtolower($user->role) : '';
+
+        if (!in_array($role, ['admin', 'owner'])) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Hanya admin atau owner yang dapat menerbitkan sertifikat.'
+            ], 403);
+        }
+
         $validated = $request->validate([
             'student_id'              => 'required|uuid|exists:students,id',
             'enrollment_id'           => 'required|uuid|exists:enrollments,id',
@@ -157,17 +167,47 @@ class CertificateController extends Controller
     /**
      * GET /certificates/{id}
      */
-    public function show(string $id)
+    public function show(Request $request, string $id)
     {
         $certificate = Certificate::with([
-            'student',
-            'enrollment.classroom',
+            'student.parents',
+            'enrollment.classroom.teachers',
             'enrollment.program',
             'enrollment.programLevel',
             'finalReport',
             'certificateTemplate',
             'generatedBy:id,name,email,role',
         ])->findOrFail($id);
+
+        $user = $request->user();
+        $role = $user ? strtolower($user->role) : '';
+
+        if ($role === 'parent') {
+            $isParentOfStudent = $certificate->student && $certificate->student->parents()
+                ->where('user_id', $user->id)
+                ->exists();
+
+            if (!$isParentOfStudent) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Anda tidak memiliki akses ke sertifikat ini.'
+                ], 403);
+            }
+        }
+
+        if ($role === 'teacher') {
+            $teacherId = Teacher::where('user_id', $user->id)->value('id');
+            $teachesClass = $certificate->enrollment && $certificate->enrollment->classroom && $certificate->enrollment->classroom->teachers()
+                ->where('teachers.id', $teacherId)
+                ->exists();
+
+            if (!$teachesClass) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Anda tidak memiliki akses ke sertifikat siswa di luar kelas Anda.'
+                ], 403);
+            }
+        }
 
         return response()->json([
             'success' => true,
@@ -180,6 +220,16 @@ class CertificateController extends Controller
      */
     public function update(Request $request, string $id)
     {
+        $user = $request->user();
+        $role = $user ? strtolower($user->role) : '';
+
+        if (!in_array($role, ['admin', 'owner'])) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Hanya admin atau owner yang dapat memperbarui sertifikat.'
+            ], 403);
+        }
+
         $cert      = Certificate::findOrFail($id);
         $validated = $request->validate([
             'issued_date' => 'sometimes|date',
@@ -193,8 +243,18 @@ class CertificateController extends Controller
     /**
      * DELETE /certificates/{id}
      */
-    public function destroy(string $id)
+    public function destroy(Request $request, string $id)
     {
+        $user = $request->user();
+        $role = $user ? strtolower($user->role) : '';
+
+        if (!in_array($role, ['admin', 'owner'])) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Hanya admin atau owner yang dapat menghapus sertifikat.'
+            ], 403);
+        }
+
         $certificate = Certificate::findOrFail($id);
         $certificate->delete();
 

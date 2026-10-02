@@ -70,6 +70,22 @@ class EnrollmentController extends Controller
      */
     public function store(Request $request)
     {
+        $schemeMap = [
+            'per_pertemuan' => 'per_session',
+            'per_session'   => 'per_session',
+            'bulanan'       => 'monthly',
+            'monthly'       => 'monthly',
+            'paket'         => 'package',
+            'package'       => 'package',
+        ];
+
+        if ($request->filled('payment_scheme')) {
+            $rawScheme = strtolower(trim((string)$request->payment_scheme));
+            if (isset($schemeMap[$rawScheme])) {
+                $request->merge(['payment_scheme' => $schemeMap[$rawScheme]]);
+            }
+        }
+
         $validated = $request->validate([
             'student_id'        => 'required|uuid|exists:students,id',
             'classroom_id'      => 'required|uuid|exists:classrooms,id',
@@ -406,6 +422,21 @@ class EnrollmentController extends Controller
     public function update(Request $request, string $id)
     {
         $enrollment = Enrollment::findOrFail($id);
+
+        if ($request->has('payment_scheme')) {
+            $schemeMap = [
+                'per_pertemuan' => 'per_session',
+                'per_session'   => 'per_session',
+                'bulanan'       => 'monthly',
+                'monthly'       => 'monthly',
+                'paket'         => 'package',
+                'package'       => 'package',
+            ];
+            $inputScheme = strtolower($request->payment_scheme);
+            if (isset($schemeMap[$inputScheme])) {
+                $request->merge(['payment_scheme' => $schemeMap[$inputScheme]]);
+            }
+        }
 
         $validated = $request->validate([
             'total_sessions'    => 'sometimes|integer|min:1',

@@ -45,15 +45,41 @@ class ClassScheduleController extends Controller
 
     public function store(Request $request)
     {
+        // Normalisasi nama hari jika dikirim dalam bahasa Indonesia atau otomatis tentukan dari effective_from
+        $indonesianDays = [
+            'senin' => 'Monday',
+            'selasa' => 'Tuesday',
+            'rabu' => 'Wednesday',
+            'kamis' => 'Thursday',
+            'jumat' => 'Friday',
+            'sabtu' => 'Saturday',
+            'minggu' => 'Sunday',
+        ];
+
+        if ($request->filled('day_of_week')) {
+            $normalizedDay = strtolower(trim($request->day_of_week));
+            if (isset($indonesianDays[$normalizedDay])) {
+                $request->merge(['day_of_week' => $indonesianDays[$normalizedDay]]);
+            }
+        }
+
         $validated = $request->validate([
             'classroom_id' => 'required|uuid|exists:classrooms,id',
             'teacher_id' => 'required|uuid|exists:teachers,id',
-            'day_of_week' => 'required|string|in:Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,Sunday',
+            'day_of_week' => 'nullable|string|in:Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,Sunday',
             'start_time' => 'required|date_format:H:i',
             'end_time' => 'required|date_format:H:i|after:start_time',
             'effective_from' => 'required|date',
             'effective_until' => 'nullable|date|after_or_equal:effective_from',
         ]);
+
+        if (empty($validated['day_of_week']) && !empty($validated['effective_from'])) {
+            try {
+                $validated['day_of_week'] = Carbon::parse($validated['effective_from'])->englishDayOfWeek;
+            } catch (\Exception $e) {
+                // Biarkan validasi atau default
+            }
+        }
 
         // Fix date_format for conflict check by appending seconds if necessary or rely on DB conversion
         $startTime = Carbon::parse($validated['start_time'])->format('H:i:s');
@@ -106,6 +132,23 @@ class ClassScheduleController extends Controller
     public function update(Request $request, string $id)
     {
         $schedule = ClassSchedule::findOrFail($id);
+
+        $indonesianDays = [
+            'senin' => 'Monday',
+            'selasa' => 'Tuesday',
+            'rabu' => 'Wednesday',
+            'kamis' => 'Thursday',
+            'jumat' => 'Friday',
+            'sabtu' => 'Saturday',
+            'minggu' => 'Sunday',
+        ];
+
+        if ($request->filled('day_of_week')) {
+            $normalizedDay = strtolower(trim($request->day_of_week));
+            if (isset($indonesianDays[$normalizedDay])) {
+                $request->merge(['day_of_week' => $indonesianDays[$normalizedDay]]);
+            }
+        }
 
         $validated = $request->validate([
             'classroom_id' => 'sometimes|uuid|exists:classrooms,id',

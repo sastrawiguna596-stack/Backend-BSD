@@ -15,7 +15,16 @@ class TeacherPayrollController extends Controller
     public function index(Request $request)
     {
         $user = $request->user();
-        $isTeacher = $user && strtolower($user->role) === 'teacher';
+        $role = $user ? strtolower($user->role) : '';
+
+        if ($role === 'parent') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Anda tidak memiliki hak akses ke data payroll.'
+            ], 403);
+        }
+
+        $isTeacher = $role === 'teacher';
         $teacherId = null;
 
         if ($isTeacher) {
@@ -37,10 +46,19 @@ class TeacherPayrollController extends Controller
 
     public function show(Request $request, string $id)
     {
-        $payroll = TeacherPayroll::with('teacher.user')->findOrFail($id);
         $user = $request->user();
+        $role = $user ? strtolower($user->role) : '';
 
-        if ($user && strtolower($user->role) === 'teacher') {
+        if ($role === 'parent') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Anda tidak memiliki hak akses ke data payroll.'
+            ], 403);
+        }
+
+        $payroll = TeacherPayroll::with('teacher.user')->findOrFail($id);
+
+        if ($role === 'teacher') {
             $myTeacherId = Teacher::where('user_id', $user->id)->value('id');
             if ($payroll->teacher_id !== $myTeacherId) {
                 return response()->json([
@@ -131,6 +149,75 @@ class TeacherPayrollController extends Controller
                 'error' => $e->getMessage()
             ], 500);
         }
+    }
+
+    public function store(Request $request)
+    {
+        $validated = $request->validate([
+            'teacher_id'     => 'required|uuid|exists:teachers,id',
+            'period_start'   => 'required|date',
+            'period_end'     => 'required|date|after_or_equal:period_start',
+            'teaching_hours' => 'nullable|numeric|min:0',
+            'base_amount'    => 'required|numeric|min:0',
+            'bonus_amount'   => 'nullable|numeric|min:0',
+            'total_amount'   => 'nullable|numeric|min:0',
+            'status'         => 'nullable|string|in:draft,pending,approved,paid,cancelled',
+            'notes'          => 'nullable|string',
+        ]);
+
+        $teachingHours = $validated['teaching_hours'] ?? 0;
+        $baseAmount = $validated['base_amount'];
+        $bonusAmount = $validated['bonus_amount'] ?? 0;
+        $totalAmount = $validated['total_amount'] ?? ($baseAmount + $bonusAmount);
+
+        $payroll = TeacherPayroll::create([
+            'teacher_id'     => $validated['teacher_id'],
+            'period_start'   => $validated['period_start'],
+            'period_end'     => $validated['period_end'],
+            'teaching_hours' => $teachingHours,
+            'base_amount'    => $baseAmount,
+            'bonus_amount'   => $bonusAmount,
+            'total_amount'   => $totalAmount,
+            'status'         => $validated['status'] ?? 'draft',
+            'notes'          => $validated['notes'] ?? null,
+            'created_by'     => $request->user()?->id,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Payroll berhasil dibuat.',
+            'data'    => $payroll->load('teacher.user'),
+        ], 201);
+    }
+
+    public function update(Request $request, string $id)
+    {
+        $payroll = TeacherPayroll::findOrFail($id);
+
+        $validated = $request->validate([
+            'status'         => 'sometimes|string|in:draft,pending,approved,paid,cancelled,partial',
+            'teaching_hours' => 'sometimes|numeric|min:0',
+            'base_amount'    => 'sometimes|numeric|min:0',
+            'bonus_amount'   => 'sometimes|numeric|min:0',
+            'total_amount'   => 'sometimes|numeric|min:0',
+            'notes'          => 'nullable|string',
+        ]);
+
+        if (isset($validated['bonus_amount']) || isset($validated['base_amount'])) {
+            $base = $validated['base_amount'] ?? $payroll->base_amount;
+            $bonus = $validated['bonus_amount'] ?? $payroll->bonus_amount;
+            if (!isset($validated['total_amount'])) {
+                $validated['total_amount'] = $base + $bonus;
+            }
+        }
+
+        $payroll->update($validated);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Payroll berhasil diperbarui.',
+            'data'    => $payroll->fresh('teacher.user'),
+        ]);
     }
 
     public function destroy(string $id)

@@ -51,14 +51,38 @@ class FinalReportController extends Controller
      */
     public function store(Request $request)
     {
+        $user = $request->user();
+        $role = $user ? strtolower($user->role) : '';
+
+        if (!in_array($role, ['admin', 'owner', 'teacher'])) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Anda tidak memiliki hak akses untuk menerbitkan laporan akhir.'
+            ], 403);
+        }
+
         $validated = $request->validate([
             'enrollment_id' => 'required|uuid|exists:enrollments,id',
             'passing_grade' => 'nullable|numeric|min:0|max:100',
             'notes'         => 'nullable|string',
         ]);
 
-        $enrollment   = Enrollment::with('student', 'programLevel')->findOrFail($validated['enrollment_id']);
+        $enrollment   = Enrollment::with(['student', 'programLevel', 'classroom.teachers'])->findOrFail($validated['enrollment_id']);
         $passingGrade = $validated['passing_grade'] ?? 70;
+
+        if ($role === 'teacher') {
+            $teacherId = Teacher::where('user_id', $user->id)->value('id');
+            $teachesClass = $enrollment->classroom && $enrollment->classroom->teachers()
+                ->where('teachers.id', $teacherId)
+                ->exists();
+
+            if (!$teachesClass) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Anda tidak memiliki akses untuk menerbitkan laporan akhir untuk kelas ini.'
+                ], 403);
+            }
+        }
 
         // Ambil semua assessment berstatus final untuk enrollment ini
         $assessments = Assessment::where('enrollment_id', $enrollment->id)
@@ -100,10 +124,40 @@ class FinalReportController extends Controller
     /**
      * Detail satu laporan akhir beserta daftar assessment yang dipakai.
      */
-    public function show(string $id)
+    public function show(Request $request, string $id)
     {
-        $report = FinalReport::with(['student', 'enrollment.programLevel', 'verifiedBy'])
+        $report = FinalReport::with(['student.parents', 'enrollment.programLevel', 'enrollment.classroom.teachers', 'verifiedBy'])
             ->findOrFail($id);
+
+        $user = $request->user();
+        $role = $user ? strtolower($user->role) : '';
+
+        if ($role === 'parent') {
+            $isParentOfStudent = $report->student && $report->student->parents()
+                ->where('user_id', $user->id)
+                ->exists();
+
+            if (!$isParentOfStudent) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Anda tidak memiliki akses ke laporan akhir ini.'
+                ], 403);
+            }
+        }
+
+        if ($role === 'teacher') {
+            $teacherId = Teacher::where('user_id', $user->id)->value('id');
+            $teachesClass = $report->enrollment && $report->enrollment->classroom && $report->enrollment->classroom->teachers()
+                ->where('teachers.id', $teacherId)
+                ->exists();
+
+            if (!$teachesClass) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Anda tidak memiliki akses ke laporan akhir siswa di luar kelas Anda.'
+                ], 403);
+            }
+        }
 
         // Sertakan daftar assessment yang digunakan dalam laporan ini
         $assessments = Assessment::where('enrollment_id', $report->enrollment_id)
@@ -125,6 +179,16 @@ class FinalReportController extends Controller
      */
     public function update(Request $request, string $id)
     {
+        $user = $request->user();
+        $role = $user ? strtolower($user->role) : '';
+
+        if (!in_array($role, ['admin', 'owner'])) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Hanya admin atau owner yang dapat mengubah laporan akhir.'
+            ], 403);
+        }
+
         $report = FinalReport::findOrFail($id);
 
         $validated = $request->validate([
@@ -151,8 +215,18 @@ class FinalReportController extends Controller
     /**
      * Hapus laporan akhir.
      */
-    public function destroy(string $id)
+    public function destroy(Request $request, string $id)
     {
+        $user = $request->user();
+        $role = $user ? strtolower($user->role) : '';
+
+        if (!in_array($role, ['admin', 'owner'])) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Hanya admin atau owner yang dapat menghapus laporan akhir.'
+            ], 403);
+        }
+
         FinalReport::findOrFail($id)->delete();
 
         return response()->json([

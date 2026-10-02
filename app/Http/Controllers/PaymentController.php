@@ -447,7 +447,6 @@ class PaymentController extends Controller
                 'is_paid'        => $payment->payment_status === 'paid',
                 'paid_at'        => $payment->paid_at ? $payment->paid_at->toIso8601String() : null,
                 'total_amount'   => $payment->total_amount,
-                'mode'           => $isLocal ? 'local_auto_sync' : 'production_webhook',
             ]
         ]);
     }

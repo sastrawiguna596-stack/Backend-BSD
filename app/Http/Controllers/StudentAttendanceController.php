@@ -53,7 +53,16 @@ class StudentAttendanceController extends Controller
     public function store(Request $request)
     {
         $user = $request->user();
-        $isTeacher = $user && strtolower($user->role) === 'teacher';
+        $role = $user ? strtolower($user->role) : '';
+
+        if ($role === 'parent') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Orang tua tidak memiliki hak akses untuk mencatat absensi.'
+            ], 403);
+        }
+
+        $isTeacher = $role === 'teacher';
 
         $validated = $request->validate([
             'class_session_id'  => 'required|uuid|exists:class_sessions,id',
@@ -130,8 +139,16 @@ class StudentAttendanceController extends Controller
     {
         $attendance = StudentAttendance::with('classSession')->findOrFail($id);
         $user = $request->user();
+        $role = $user ? strtolower($user->role) : '';
 
-        if ($user && strtolower($user->role) === 'teacher') {
+        if ($role === 'parent') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Orang tua tidak memiliki hak akses untuk mengubah absensi.'
+            ], 403);
+        }
+
+        if ($role === 'teacher') {
             $teacherId = Teacher::where('user_id', $user->id)->value('id');
             if ($attendance->classSession?->teacher_id !== $teacherId) {
                 return response()->json([
@@ -160,19 +177,17 @@ class StudentAttendanceController extends Controller
      */
     public function destroy(Request $request, string $id)
     {
-        $attendance = StudentAttendance::with('classSession')->findOrFail($id);
         $user = $request->user();
+        $role = $user ? strtolower($user->role) : '';
 
-        if ($user && strtolower($user->role) === 'teacher') {
-            $teacherId = Teacher::where('user_id', $user->id)->value('id');
-            if ($attendance->classSession?->teacher_id !== $teacherId) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Anda tidak memiliki akses untuk menghapus absensi ini.'
-                ], 403);
-            }
+        if (!in_array($role, ['admin', 'owner'])) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Hanya admin atau owner yang dapat menghapus data absensi.'
+            ], 403);
         }
 
+        $attendance = StudentAttendance::findOrFail($id);
         $attendance->delete();
 
         return response()->json([

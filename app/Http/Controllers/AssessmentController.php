@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Assessment;
+use App\Models\Enrollment;
 use App\Models\Teacher;
 use Illuminate\Http\Request;
 
@@ -52,6 +53,16 @@ class AssessmentController extends Controller
      */
     public function store(Request $request)
     {
+        $user = $request->user();
+        $role = $user ? strtolower($user->role) : '';
+
+        if ($role === 'parent') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Orang tua tidak memiliki hak akses untuk mencatat penilaian.'
+            ], 403);
+        }
+
         $validated = $request->validate([
             'student_id'       => 'required|uuid|exists:students,id',
             'enrollment_id'    => 'required|uuid|exists:enrollments,id',
@@ -62,6 +73,22 @@ class AssessmentController extends Controller
             'assessment_date'  => 'required|date',
             'status'           => 'sometimes|string|in:draft,final',
         ]);
+
+        if ($role === 'teacher') {
+            $teacherId = Teacher::where('user_id', $user->id)->value('id');
+            $teachesClass = Enrollment::where('id', $validated['enrollment_id'])
+                ->whereHas('classroom.teachers', function ($q) use ($teacherId) {
+                    $q->where('teachers.id', $teacherId);
+                })
+                ->exists();
+
+            if (!$teachesClass) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Anda hanya dapat menginput nilai untuk siswa di kelas yang Anda ajar.'
+                ], 403);
+            }
+        }
 
         $validated['weight']      = $validated['weight'] ?? 1.0;
         $validated['status']      = $validated['status'] ?? 'final';
@@ -79,21 +106,76 @@ class AssessmentController extends Controller
     /**
      * Detail satu penilaian.
      */
-    public function show(string $id)
+    public function show(Request $request, string $id)
     {
-        $assessment = Assessment::with(['student', 'enrollment', 'programLevel', 'recordedBy'])
+        $assessment = Assessment::with(['student.parents', 'enrollment.classroom.teachers', 'programLevel', 'recordedBy'])
             ->findOrFail($id);
+
+        $user = $request->user();
+        $role = $user ? strtolower($user->role) : '';
+
+        if ($role === 'parent') {
+            $isParentOfStudent = $assessment->student && $assessment->student->parents()
+                ->where('user_id', $user->id)
+                ->exists();
+
+            if (!$isParentOfStudent) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Anda tidak memiliki akses ke penilaian ini.'
+                ], 403);
+            }
+        }
+
+        if ($role === 'teacher') {
+            $teacherId = Teacher::where('user_id', $user->id)->value('id');
+            $isRecordedByMe = $assessment->recorded_by === $user->id;
+            $teachesClass = $assessment->enrollment && $assessment->enrollment->classroom && $assessment->enrollment->classroom->teachers()
+                ->where('teachers.id', $teacherId)
+                ->exists();
+
+            if (!$isRecordedByMe && !$teachesClass) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Anda tidak memiliki akses ke penilaian siswa di luar kelas Anda.'
+                ], 403);
+            }
+        }
 
         return response()->json(['success' => true, 'data' => $assessment]);
     }
 
     /**
      * Koreksi nilai atau bobot.
-     * Bisa dilakukan oleh guru, admin, atau owner.
+     * Bisa dilakukan oleh guru pengajar, admin, atau owner.
      */
     public function update(Request $request, string $id)
     {
-        $assessment = Assessment::findOrFail($id);
+        $assessment = Assessment::with('enrollment.classroom.teachers')->findOrFail($id);
+        $user = $request->user();
+        $role = $user ? strtolower($user->role) : '';
+
+        if ($role === 'parent') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Orang tua tidak memiliki hak akses untuk mengubah nilai.'
+            ], 403);
+        }
+
+        if ($role === 'teacher') {
+            $teacherId = Teacher::where('user_id', $user->id)->value('id');
+            $isRecordedByMe = $assessment->recorded_by === $user->id;
+            $teachesClass = $assessment->enrollment && $assessment->enrollment->classroom && $assessment->enrollment->classroom->teachers()
+                ->where('teachers.id', $teacherId)
+                ->exists();
+
+            if (!$isRecordedByMe && !$teachesClass) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Anda tidak memiliki akses untuk mengubah nilai siswa di luar kelas Anda.'
+                ], 403);
+            }
+        }
 
         $validated = $request->validate([
             'assessment_name' => 'sometimes|string|max:255',
@@ -115,9 +197,35 @@ class AssessmentController extends Controller
     /**
      * Hapus satu data penilaian.
      */
-    public function destroy(string $id)
+    public function destroy(Request $request, string $id)
     {
-        Assessment::findOrFail($id)->delete();
+        $assessment = Assessment::with('enrollment.classroom.teachers')->findOrFail($id);
+        $user = $request->user();
+        $role = $user ? strtolower($user->role) : '';
+
+        if ($role === 'parent') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Orang tua tidak memiliki hak akses untuk menghapus nilai.'
+            ], 403);
+        }
+
+        if ($role === 'teacher') {
+            $teacherId = Teacher::where('user_id', $user->id)->value('id');
+            $isRecordedByMe = $assessment->recorded_by === $user->id;
+            $teachesClass = $assessment->enrollment && $assessment->enrollment->classroom && $assessment->enrollment->classroom->teachers()
+                ->where('teachers.id', $teacherId)
+                ->exists();
+
+            if (!$isRecordedByMe && !$teachesClass) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Anda tidak memiliki akses untuk menghapus nilai ini.'
+                ], 403);
+            }
+        }
+
+        $assessment->delete();
 
         return response()->json([
             'success' => true,

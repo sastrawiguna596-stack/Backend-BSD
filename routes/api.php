@@ -27,6 +27,7 @@ use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\CashTransactionController;
 use App\Http\Controllers\FinanceReportController;
 use App\Http\Controllers\TeacherPayrollController;
+use App\Http\Controllers\AcademicDashboardController;
 
 use App\Http\Controllers\AnnouncementController;
 
@@ -79,8 +80,6 @@ Route::prefix('v1')->group(function () {
         Route::get('holidays',           [HolidayController::class, 'index']);
         Route::get('holidays/{holiday}', [HolidayController::class, 'show']);
 
-        // Parent self-profile (parent role can access their own data)
-        Route::get('parents/my-profile', [ParentController::class, 'myProfile']);
         // ==========================================
         // 3. OWNER & ADMIN ONLY
         //    Manajemen Guru, Siswa, Orang Tua (Write)
@@ -125,6 +124,28 @@ Route::prefix('v1')->group(function () {
             Route::apiResource('inventories', InventoryController::class);
             Route::apiResource('inventory', InventoryController::class);
 
+            // --- Program & Level (Write: Admin / Owner Only) ---
+            Route::post('programs',                           [ProgramController::class, 'store']);
+            Route::put('programs/{program}',                  [ProgramController::class, 'update']);
+            Route::patch('programs/{program}',                [ProgramController::class, 'update']);
+            Route::delete('programs/{program}',               [ProgramController::class, 'destroy']);
+            Route::post('programs/{program}/levels',          [ProgramController::class, 'storeLevel']);
+            Route::put('programs/{program}/levels/{level}',   [ProgramController::class, 'updateLevel']);
+            Route::delete('programs/{program}/levels/{level}', [ProgramController::class, 'destroyLevel']);
+
+            // --- Enrollment / Pendaftaran Siswa (Write: Admin / Owner Only) ---
+            Route::post('enrollments',                        [EnrollmentController::class, 'store']);
+            Route::put('enrollments/{enrollment}',            [EnrollmentController::class, 'update']);
+            Route::patch('enrollments/{enrollment}',          [EnrollmentController::class, 'update']);
+            Route::delete('enrollments/{enrollment}',         [EnrollmentController::class, 'destroy']);
+
+            // --- Jadwal Kelas & Generate Sesi (Write: Admin / Owner Only) ---
+            Route::post('class-schedules/{class_schedule}/generate-sessions', [ClassScheduleController::class, 'generateSessions']);
+            Route::post('class-schedules',                    [ClassScheduleController::class, 'store']);
+            Route::put('class-schedules/{class_schedule}',    [ClassScheduleController::class, 'update']);
+            Route::patch('class-schedules/{class_schedule}',  [ClassScheduleController::class, 'update']);
+            Route::delete('class-schedules/{class_schedule}', [ClassScheduleController::class, 'destroy']);
+
             Route::post('payment-plans/generate',        [PaymentPlanController::class, 'generateForEnrollment']);
             Route::post('payment-plans',                 [PaymentPlanController::class, 'store']);
             Route::put('payment-plans/{payment_plan}',   [PaymentPlanController::class, 'update']);
@@ -135,15 +156,36 @@ Route::prefix('v1')->group(function () {
             Route::post('cash-transactions/{id}/confirm', [CashTransactionController::class, 'confirm']);
             Route::post('cash-transactions/{id}/reject',  [CashTransactionController::class, 'reject']);
 
+            // --- Dashboard Akademik Terpadu (Hari 7 - Admin / Owner) ---
+            Route::get('academic/dashboard',             [AcademicDashboardController::class, 'dashboard']);
+
             // --- Dashboard & Laporan Keuangan (Hari 7 - Admin / Owner Only) ---
             Route::get('finance/dashboard',             [FinanceReportController::class, 'dashboard']);
             Route::get('finance/reports/income',        [FinanceReportController::class, 'incomeReport']);
             Route::get('finance/reports/outstanding',   [FinanceReportController::class, 'outstandingReport']);
             Route::get('finance/reports/reconciliation',[FinanceReportController::class, 'cashReconciliation']);
 
+            // --- Manajemen Laporan Akhir & Sertifikat (Admin / Owner Override & Sertifikat) ---
+            Route::put('final-reports/{final_report}',     [FinalReportController::class, 'update']);
+            Route::patch('final-reports/{final_report}',   [FinalReportController::class, 'update']);
+            Route::delete('final-reports/{final_report}',  [FinalReportController::class, 'destroy']);
+
+            Route::post('certificates',                    [CertificateController::class, 'store']);
+            Route::put('certificates/{certificate}',      [CertificateController::class, 'update']);
+            Route::patch('certificates/{certificate}',    [CertificateController::class, 'update']);
+            Route::delete('certificates/{certificate}',   [CertificateController::class, 'destroy']);
+
             // --- Pengumuman (Write) ---
             Route::post('/announcements', [AnnouncementController::class, 'store']);
             Route::apiResource('announcements', AnnouncementController::class)->except(['index', 'store']);
+        });
+
+        // ==========================================
+        // 3.4 OWNER, ADMIN & GURU
+        //     Penerbitan Laporan Akhir Siswa
+        // ==========================================
+        Route::middleware('role:owner,admin,teacher')->group(function () {
+            Route::post('final-reports', [FinalReportController::class, 'store']);
         });
 
         // ==========================================
@@ -167,28 +209,25 @@ Route::prefix('v1')->group(function () {
         Route::get('teacher-payrolls/{teacher_payroll}',      [TeacherPayrollController::class, 'show']);
 
         // --- Akademik & Kelas ---
-        // Classrooms: Read = all authenticated roles (teachers need to see their classes)
+        // Classrooms, Programs, Enrollments, Schedules: Read = all authenticated roles
         Route::apiResource('classrooms', ClassroomController::class)->only(['index', 'show']);
-        Route::apiResource('programs', ProgramController::class);
-        // Level management (nested di bawah program)
-        Route::post('programs/{program}/levels',          [ProgramController::class, 'storeLevel']);
-        Route::put('programs/{program}/levels/{level}',   [ProgramController::class, 'updateLevel']);
-        Route::delete('programs/{program}/levels/{level}', [ProgramController::class, 'destroyLevel']);
-        Route::apiResource('enrollments', EnrollmentController::class);
-        
+        Route::apiResource('programs', ProgramController::class)->only(['index', 'show']);
+        Route::apiResource('enrollments', EnrollmentController::class)->only(['index', 'show']);
+
         Route::post('class-sessions/{class_session}/reschedule', [ClassSessionController::class, 'reschedule']);
         Route::post('class-sessions/{class_session}/submit-attendance', [ClassSessionController::class, 'submitAttendanceAndLogbook']);
         Route::apiResource('class-sessions', ClassSessionController::class);
-        
-        Route::post('class-schedules/{class_schedule}/generate-sessions', [ClassScheduleController::class, 'generateSessions']);
-        Route::apiResource('class-schedules', ClassScheduleController::class);
+
+        Route::apiResource('class-schedules', ClassScheduleController::class)->only(['index', 'show']);
 
         // --- Monitoring & Evaluasi ---
         Route::apiResource('student-attendances', StudentAttendanceController::class);
         Route::apiResource('teacher-logbooks', TeacherLogbookController::class);
         Route::apiResource('assessments', AssessmentController::class);
-        Route::apiResource('final-reports', FinalReportController::class);
-        Route::apiResource('certificates', CertificateController::class);
+        Route::get('final-reports',                   [FinalReportController::class, 'index']);
+        Route::get('final-reports/{final_report}',    [FinalReportController::class, 'show']);
+        Route::get('certificates',                    [CertificateController::class, 'index']);
+        Route::get('certificates/{certificate}',     [CertificateController::class, 'show']);
 
         // --- Keuangan & Pembayaran Digital ---
         Route::get('payments/methods', [PaymentController::class, 'methods']);
