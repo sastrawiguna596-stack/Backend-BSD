@@ -20,6 +20,22 @@ class TeacherController extends Controller
         $user = $request->user();
         $teacher = Teacher::with('user')->where('user_id', $user->id)->first();
 
+        // 1. Jika akun adalah guru tetapi belum ada record profil di tabel teachers, buatkan otomatis
+        if (!$teacher && $user->role === 'teacher') {
+            $teacher = Teacher::create([
+                'id'           => (string) \Illuminate\Support\Str::uuid(),
+                'user_id'      => $user->id,
+                'teacher_code' => 'TCH-' . strtoupper(\Illuminate\Support\Str::random(6)),
+                'is_active'    => true,
+            ]);
+            $teacher->load('user');
+        }
+
+        // 2. Jika diakses oleh owner atau admin untuk keperluan simulasi/peninjauan portal guru
+        if (!$teacher && in_array($user->role, ['owner', 'admin'])) {
+            $teacher = Teacher::with('user')->first();
+        }
+
         if (!$teacher) {
             return response()->json([
                 'success' => false,

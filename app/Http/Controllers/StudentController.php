@@ -50,12 +50,27 @@ class StudentController extends Controller
                     $enr->where('classroom_id', $request->classroom_id)->where('status', 'active');
                 });
             })
-            ->when($request->status, function ($q) use ($request) {
-                $q->where('status', $request->status);
+            ->when($request->filled('status') && !in_array(strtolower($request->status), ['semua', 'all']), function ($q) use ($request) {
+                $statusMap = [
+                    'aktif'       => 'active',
+                    'active'      => 'active',
+                    'percobaan'   => 'trial',
+                    'trial'       => 'trial',
+                    'cuti'        => 'on_leave',
+                    'on_leave'    => 'on_leave',
+                    'tidak aktif' => 'inactive',
+                    'inactive'    => 'inactive',
+                    'lulus'       => 'graduated',
+                    'graduated'   => 'graduated',
+                ];
+                $cleanStatus = $statusMap[strtolower(trim($request->status))] ?? $request->status;
+                $q->where('status', $cleanStatus);
             })
             ->when($request->search, function ($q) use ($request) {
-                $q->where('full_name', 'like', '%' . $request->search . '%')
-                  ->orWhere('student_code', 'like', '%' . $request->search . '%');
+                $q->where(function ($sub) use ($request) {
+                    $sub->where('full_name', 'like', '%' . $request->search . '%')
+                        ->orWhere('student_code', 'like', '%' . $request->search . '%');
+                });
             })
             ->when($request->school_grade, function ($q) use ($request) {
                 $q->where('school_grade', $request->school_grade);
@@ -180,8 +195,8 @@ class StudentController extends Controller
     {
         $student = Student::findOrFail($id);
 
-        $hasPaidTransactions = Payment::where('student_id', $student->id)->where('status', 'paid')->exists()
-            || CashTransaction::where('student_id', $student->id)->where('status', 'confirmed')->exists();
+        $hasPaidTransactions = Payment::where('student_id', $student->id)->where('payment_status', 'paid')->exists()
+            || CashTransaction::where('student_id', $student->id)->where('status', 'paid')->exists();
 
         if ($hasPaidTransactions) {
             // Demi menjaga integritas laporan keuangan dan audit trail,

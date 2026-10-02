@@ -60,7 +60,7 @@ class CertificateController extends Controller
             $query->where(function ($q) use ($search) {
                 $q->where('certificate_code', 'like', "%{$search}%")
                   ->orWhereHas('student', function ($sq) use ($search) {
-                      $sq->where('name', 'like', "%{$search}%");
+                      $sq->where('full_name', 'like', "%{$search}%");
                   });
             });
         }

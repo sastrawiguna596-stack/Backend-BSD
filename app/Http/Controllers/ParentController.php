@@ -21,11 +21,31 @@ class ParentController extends Controller
         $user = $request->user();
         $parent = ParentModel::with(['user', 'students'])->where('user_id', $user->id)->first();
 
+        // 1. Jika akun adalah parent tetapi belum ada record profil di tabel parents, buatkan otomatis
+        if (!$parent && $user->role === 'parent') {
+            $parent = ParentModel::create([
+                'id'           => (string) Str::uuid(),
+                'user_id'      => $user->id,
+                'parent_code'  => 'PAR-' . strtoupper(Str::random(6)),
+                'relationship' => 'Orang Tua',
+            ]);
+            $parent->load(['user', 'students']);
+        }
+
+        // 2. Jika diakses oleh owner atau admin untuk keperluan simulasi/peninjauan portal orang tua
+        if (!$parent && in_array($user->role, ['owner', 'admin'])) {
+            $parent = ParentModel::with(['user', 'students'])->first();
+        }
+
+        // 3. Fallback aman jika database belum memiliki data parent sama sekali
         if (!$parent) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Profil orang tua tidak ditemukan untuk akun ini.',
-            ], 404);
+            $parent = ParentModel::create([
+                'id'           => (string) Str::uuid(),
+                'user_id'      => $user->id,
+                'parent_code'  => 'PAR-DEMO',
+                'relationship' => 'Orang Tua',
+            ]);
+            $parent->load(['user', 'students']);
         }
 
         return response()->json([
@@ -225,29 +245,4 @@ class ParentController extends Controller
             'message' => 'Relasi siswa berhasil dilepas.',
         ]);
     }
-
-    /**
-     * GET /parents/my-profile
-     * Ambil profil parent yang sedang login (parent role only).
-     */
-    public function myProfile(Request $request)
-    {
-        $user = $request->user();
-        $parent = ParentModel::with(["user", "students"])
-            ->where("user_id", $user->id)
-            ->first();
-
-        if (!$parent) {
-            return response()->json([
-                "success" => false,
-                "message" => "Profil orang tua tidak ditemukan untuk akun ini."
-            ], 404);
-        }
-
-        return response()->json([
-            "success" => true,
-            "data"    => $parent
-        ]);
-    }
-
 }

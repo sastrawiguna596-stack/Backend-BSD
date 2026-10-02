@@ -233,7 +233,7 @@ Route::prefix('v1')->group(function () {
         Route::get('payments/methods', [PaymentController::class, 'methods']);
         Route::post('payments/charge', [PaymentController::class, 'charge']);
         Route::get('payments/{payment}/status', [PaymentController::class, 'checkStatus']);
-        Route::apiResource('payments', PaymentController::class);
+        Route::apiResource('payments', PaymentController::class)->only(['index', 'show']);
 
         // --- Transaksi Tunai (Cash Payment) ---
         Route::get('cash-transactions',          [CashTransactionController::class, 'index']);

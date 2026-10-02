@@ -9,6 +9,7 @@ use App\Models\TeacherHourlyRate;
 use App\Models\TeacherBonus;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 class TeacherPayrollController extends Controller
 {
@@ -170,7 +171,7 @@ class TeacherPayrollController extends Controller
         $bonusAmount = $validated['bonus_amount'] ?? 0;
         $totalAmount = $validated['total_amount'] ?? ($baseAmount + $bonusAmount);
 
-        $payroll = TeacherPayroll::create([
+        $payload = [
             'teacher_id'     => $validated['teacher_id'],
             'period_start'   => $validated['period_start'],
             'period_end'     => $validated['period_end'],
@@ -179,9 +180,14 @@ class TeacherPayrollController extends Controller
             'bonus_amount'   => $bonusAmount,
             'total_amount'   => $totalAmount,
             'status'         => $validated['status'] ?? 'draft',
-            'notes'          => $validated['notes'] ?? null,
             'created_by'     => $request->user()?->id,
-        ]);
+        ];
+
+        if (Schema::hasColumn('teacher_payrolls', 'notes')) {
+            $payload['notes'] = $validated['notes'] ?? null;
+        }
+
+        $payroll = TeacherPayroll::create($payload);
 
         return response()->json([
             'success' => true,
@@ -209,6 +215,10 @@ class TeacherPayrollController extends Controller
             if (!isset($validated['total_amount'])) {
                 $validated['total_amount'] = $base + $bonus;
             }
+        }
+
+        if (array_key_exists('notes', $validated) && !Schema::hasColumn('teacher_payrolls', 'notes')) {
+            unset($validated['notes']);
         }
 
         $payroll->update($validated);
