@@ -5,15 +5,47 @@ namespace App\Http\Controllers;
 use App\Models\ClassSession;
 use App\Models\StudentAttendance;
 use App\Models\TeacherLogbook;
+use App\Models\Teacher;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
 
 class ClassSessionController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
-        $sessions = ClassSession::with(['classroom', 'teacher', 'classSchedule'])->get();
+        $query = ClassSession::with(['classroom.programLevel', 'teacher', 'classSchedule', 'teacherLogbook', 'studentAttendances.student']);
+
+        $user = $request->user();
+
+        // Jika role teacher, otomatis filter ke sesi milik guru yang login
+        if ($user && $user->role === 'teacher') {
+            $teacher = Teacher::where('user_id', $user->id)->first();
+            if ($teacher) {
+                $query->where('teacher_id', $teacher->id);
+            }
+        } elseif ($request->filled('teacher_id')) {
+            // Admin/owner boleh filter by teacher_id via query param
+            $query->where('teacher_id', $request->teacher_id);
+        }
+
+        // Filter by date jika ada
+        if ($request->filled('date')) {
+            $query->whereDate('session_date', $request->date);
+        }
+
+        // Filter by classroom_id (for parent/student view)
+        if ($request->filled('classroom_id')) {
+            $query->where('classroom_id', $request->classroom_id);
+        }
+
+        // Filter by status
+        if ($request->filled('status')) {
+            $query->where('status', $request->status);
+        }
+
+        $sessions = $query->orderBy('session_date')->orderBy('start_time')->get();
+
         return response()->json(['success' => true, 'data' => $sessions]);
     }
 
@@ -59,7 +91,7 @@ class ClassSessionController extends Controller
 
     public function show(string $id)
     {
-        $session = ClassSession::with(['classroom', 'teacher', 'classSchedule'])->findOrFail($id);
+        $session = ClassSession::with(['classroom.programLevel', 'teacher', 'classSchedule', 'teacherLogbook', 'studentAttendances.student'])->findOrFail($id);
         return response()->json(['success' => true, 'data' => $session]);
     }
 
@@ -88,9 +120,6 @@ class ClassSessionController extends Controller
         return response()->json(['success' => true, 'message' => 'Sesi berhasil dihapus.']);
     }
 
-    /**
-     * Reschedule 1 sesi spesifik ke tanggal dan jam baru.
-     */
     public function reschedule(Request $request, string $id)
     {
         $session = ClassSession::findOrFail($id);
@@ -132,9 +161,6 @@ class ClassSessionController extends Controller
         ]);
     }
 
-    /**
-     * Submit attendance for students and logbook for teacher transactionally.
-     */
     public function submitAttendanceAndLogbook(Request $request, string $id)
     {
         $session = ClassSession::findOrFail($id);
@@ -157,7 +183,6 @@ class ClassSessionController extends Controller
 
             $attendances = [];
             foreach ($validated['students'] as $studentData) {
-                // Remove existing if any (optional, depends on logic if they can resubmit)
                 StudentAttendance::where('class_session_id', $session->id)
                     ->where('student_id', $studentData['student_id'])
                     ->delete();
@@ -172,7 +197,6 @@ class ClassSessionController extends Controller
                 ]);
             }
 
-            // Remove existing logbook if any
             TeacherLogbook::where('class_session_id', $session->id)
                 ->where('teacher_id', $session->teacher_id)
                 ->delete();

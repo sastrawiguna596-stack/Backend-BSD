@@ -204,4 +204,29 @@ class ParentController extends Controller
             'message' => 'Relasi siswa berhasil dilepas.',
         ]);
     }
+
+    /**
+     * GET /parents/my-profile
+     * Ambil profil parent yang sedang login (parent role only).
+     */
+    public function myProfile(Request $request)
+    {
+        $user = $request->user();
+        $parent = ParentModel::with(["user", "students"])
+            ->where("user_id", $user->id)
+            ->first();
+
+        if (!$parent) {
+            return response()->json([
+                "success" => false,
+                "message" => "Profil orang tua tidak ditemukan untuk akun ini."
+            ], 404);
+        }
+
+        return response()->json([
+            "success" => true,
+            "data"    => $parent
+        ]);
+    }
+
 }

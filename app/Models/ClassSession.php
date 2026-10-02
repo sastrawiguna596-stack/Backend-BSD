@@ -23,9 +23,19 @@ class ClassSession extends Model
         return $this->belongsTo(Teacher::class);
     }
 
-    public function classSchedule()
+        public function classSchedule()
     {
         return $this->belongsTo(ClassSchedule::class);
+    }
+
+    public function teacherLogbook()
+    {
+        return $this->hasOne(TeacherLogbook::class, 'class_session_id');
+    }
+
+    public function studentAttendances()
+    {
+        return $this->hasMany(StudentAttendance::class, 'class_session_id');
     }
 
     /**

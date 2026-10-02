@@ -57,6 +57,8 @@ Route::prefix('v1')->group(function () {
         Route::get('/auth/me',      [AuthController::class, 'me']);
         Route::post('/auth/logout', [AuthController::class, 'logout']);
 
+        // Parent self-profile (parent role can access their own data)
+        Route::get('parents/my-profile', [ParentController::class, 'myProfile']);
         // ==========================================
         // 3. OWNER & ADMIN ONLY
         //    Manajemen Guru, Siswa, Orang Tua
@@ -79,7 +81,8 @@ Route::prefix('v1')->group(function () {
             Route::apiResource('users', UserController::class);
 
             // --- Master Data Lainnya ---
-            Route::apiResource('classrooms', ClassroomController::class);
+            // Classrooms: Write + manage teachers = admin only
+            Route::apiResource('classrooms', ClassroomController::class)->only(['store', 'update', 'destroy']);
             // Assign / lepas guru dari kelas
             Route::post('classrooms/{classroom}/teachers',            [ClassroomController::class, 'assignTeacher']);
             Route::delete('classrooms/{classroom}/teachers/{teacher}', [ClassroomController::class, 'removeTeacher']);
@@ -118,6 +121,8 @@ Route::prefix('v1')->group(function () {
         // ==========================================
 
         // --- Akademik & Kelas ---
+        // Classrooms: Read = all authenticated roles (teachers need to see their classes)
+        Route::apiResource('classrooms', ClassroomController::class)->only(['index', 'show']);
         Route::apiResource('programs', ProgramController::class);
         // Level management (nested di bawah program)
         Route::post('programs/{program}/levels',          [ProgramController::class, 'storeLevel']);
