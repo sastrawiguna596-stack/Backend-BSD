@@ -27,6 +27,11 @@ class Certificate extends Model
         return $this->belongsTo(FinalReport::class);
     }
 
+    public function certificateTemplate()
+    {
+        return $this->belongsTo(CertificateTemplate::class);
+    }
+
     public function generatedBy()
     {
         return $this->belongsTo(User::class, 'generated_by');

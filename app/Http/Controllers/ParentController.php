@@ -14,6 +14,27 @@ use Illuminate\Validation\Rule;
 class ParentController extends Controller
 {
     /**
+     * Profil orang tua yang sedang login beserta anak-anaknya.
+     */
+    public function myProfile(Request $request)
+    {
+        $user = $request->user();
+        $parent = ParentModel::with(['user', 'students'])->where('user_id', $user->id)->first();
+
+        if (!$parent) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Profil orang tua tidak ditemukan untuk akun ini.',
+            ], 404);
+        }
+
+        return response()->json([
+            'success' => true,
+            'data'    => $parent,
+        ]);
+    }
+
+    /**
      * Daftar semua orang tua / wali beserta data akun pengguna.
      */
     public function index(Request $request)

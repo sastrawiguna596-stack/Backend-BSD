@@ -16,12 +16,50 @@ class PaymentPlanController extends Controller
      */
     public function index(Request $request)
     {
+        // Jika ada filter student_id dan terdapat enrollment aktif yang belum memiliki tagihan,
+        // otomatis generate payment plans standar berdasarkan konfigurasi sesi enrollment tersebut
+        if ($request->filled('student_id')) {
+            $enrollmentsWithoutPlans = Enrollment::where('student_id', $request->student_id)
+                ->where('status', 'active')
+                ->doesntHave('paymentPlans')
+                ->get();
+
+            foreach ($enrollmentsWithoutPlans as $enr) {
+                $totalSessions = (int) ($enr->total_sessions ?: 8);
+                $totalAmount = (float) ($enr->total_amount ?: (50000 * $totalSessions));
+                $amountPerSession = round($totalAmount / $totalSessions, 2);
+                $startDate = $enr->start_date ?: now();
+
+                for ($i = 1; $i <= $totalSessions; $i++) {
+                    PaymentPlan::create([
+                        'enrollment_id'  => $enr->id,
+                        'session_number' => $i,
+                        'amount'         => $amountPerSession,
+                        'due_date'       => Carbon::parse($startDate)->addWeeks($i - 1)->toDateString(),
+                        'status'         => 'pending',
+                        'is_paid'        => false,
+                    ]);
+                }
+            }
+        }
+
         $query = PaymentPlan::with([
             'enrollment.student',
             'enrollment.program',
             'enrollment.programLevel',
-            'payments'
+            'payments',
+            'cashTransactions',
         ])
+        ->when($request->user() && strtolower($request->user()->role) === 'parent', function ($q) use ($request) {
+            $q->where(function ($sub) use ($request) {
+                $sub->whereHas('enrollment.student.parents', function ($p) use ($request) {
+                    $p->where('user_id', $request->user()->id);
+                })
+                ->orWhereHas('payments', function ($pay) use ($request) {
+                    $pay->where('created_by', $request->user()->id);
+                });
+            });
+        })
         ->when($request->filled('status'), function ($q) use ($request) {
             $status = strtolower($request->status);
             if ($status === 'paid') {
@@ -175,14 +213,30 @@ class PaymentPlanController extends Controller
     /**
      * Menampilkan detail satu tagihan.
      */
-    public function show(string $id)
+    public function show(Request $request, string $id)
     {
         $paymentPlan = PaymentPlan::with([
             'enrollment.student',
             'enrollment.program',
             'enrollment.programLevel',
-            'payments'
+            'payments',
+            'cashTransactions',
         ])->findOrFail($id);
+
+        $user = $request->user();
+        if ($user && strtolower($user->role) === 'parent') {
+            $isOwner = $paymentPlan->enrollment?->student?->parents()
+                ->where('user_id', $user->id)
+                ->exists()
+                || $paymentPlan->payments()->where('created_by', $user->id)->exists();
+
+            if (!$isOwner) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Anda tidak memiliki akses ke tagihan ini.'
+                ], 403);
+            }
+        }
 
         return response()->json([
             'success' => true,

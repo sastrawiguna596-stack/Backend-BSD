@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Assessment;
+use App\Models\Teacher;
 use Illuminate\Http\Request;
 
 class AssessmentController extends Controller
@@ -13,7 +14,30 @@ class AssessmentController extends Controller
      */
     public function index(Request $request)
     {
-        $assessments = Assessment::with(['student', 'enrollment', 'programLevel', 'recordedBy'])
+        $user = $request->user();
+        $isTeacher = $user && strtolower($user->role) === 'teacher';
+        $isParent = $user && strtolower($user->role) === 'parent';
+        $teacherId = null;
+
+        if ($isTeacher) {
+            $teacherId = Teacher::where('user_id', $user->id)->value('id') ?: '00000000-0000-0000-0000-000000000000';
+        }
+
+        $assessments = Assessment::with(['student', 'enrollment.classroom', 'programLevel', 'recordedBy'])
+            ->when($isParent, function ($q) use ($user) {
+                $q->whereHas('student.parents', function ($p) use ($user) {
+                    $p->where('user_id', $user->id);
+                });
+            })
+            ->when($isTeacher, function ($q) use ($teacherId, $user) {
+                $userId = $user->id;
+                $q->where(function ($sub) use ($teacherId, $userId) {
+                    $sub->where('recorded_by', $userId)
+                        ->orWhereHas('enrollment.classroom.teachers', function ($t) use ($teacherId) {
+                            $t->where('teachers.id', $teacherId);
+                        });
+                });
+            })
             ->when($request->student_id, fn($q) => $q->where('student_id', $request->student_id))
             ->when($request->enrollment_id, fn($q) => $q->where('enrollment_id', $request->enrollment_id))
             ->when($request->program_level_id, fn($q) => $q->where('program_level_id', $request->program_level_id))

@@ -4,8 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Models\ClassSession;
 use App\Models\StudentAttendance;
-use App\Models\TeacherLogbook;
 use App\Models\Teacher;
+use App\Models\TeacherLogbook;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
@@ -14,37 +14,43 @@ class ClassSessionController extends Controller
 {
     public function index(Request $request)
     {
-        $query = ClassSession::with(['classroom.programLevel', 'teacher', 'classSchedule', 'teacherLogbook', 'studentAttendances.student']);
+        $user      = $request->user();
+        $isTeacher = $user && strtolower($user->role) === 'teacher';
+        $isParent  = $user && strtolower($user->role) === 'parent';
+        $teacherId = null;
 
-        $user = $request->user();
-
-        // Jika role teacher, otomatis filter ke sesi milik guru yang login
-        if ($user && $user->role === 'teacher') {
-            $teacher = Teacher::where('user_id', $user->id)->first();
-            if ($teacher) {
-                $query->where('teacher_id', $teacher->id);
-            }
-        } elseif ($request->filled('teacher_id')) {
-            // Admin/owner boleh filter by teacher_id via query param
-            $query->where('teacher_id', $request->teacher_id);
+        if ($isTeacher) {
+            $teacherId = Teacher::where('user_id', $user->id)->value('id') ?: '00000000-0000-0000-0000-000000000000';
         }
 
-        // Filter by date jika ada
-        if ($request->filled('date')) {
-            $query->whereDate('session_date', $request->date);
-        }
+        $query = ClassSession::with(['classroom.programLevel.program', 'teacher.user', 'classSchedule', 'teacherLogbook', 'studentAttendances.student'])
+            ->when($isTeacher, function ($q) use ($teacherId) {
+                $q->where('teacher_id', $teacherId);
+            })
+            ->when($isParent, function ($q) use ($user) {
+                $q->whereHas('classroom.enrollments', function ($enr) use ($user) {
+                    $enr->where('status', 'active')
+                        ->whereHas('student.parents', function ($p) use ($user) {
+                            $p->where('user_id', $user->id);
+                        });
+                });
+            })
+            ->when($request->filled('classroom_id'), function ($q) use ($request) {
+                $q->where('classroom_id', $request->classroom_id);
+            })
+            ->when($request->filled('teacher_id') && !$isTeacher, function ($q) use ($request) {
+                $q->where('teacher_id', $request->teacher_id);
+            })
+            ->when($request->filled('date'), function ($q) use ($request) {
+                $q->whereDate('session_date', $request->date);
+            })
+            ->when($request->filled('status'), function ($q) use ($request) {
+                $q->where('status', $request->status);
+            })
+            ->orderBy('session_date', 'asc')
+            ->orderBy('start_time', 'asc');
 
-        // Filter by classroom_id (for parent/student view)
-        if ($request->filled('classroom_id')) {
-            $query->where('classroom_id', $request->classroom_id);
-        }
-
-        // Filter by status
-        if ($request->filled('status')) {
-            $query->where('status', $request->status);
-        }
-
-        $sessions = $query->orderBy('session_date')->orderBy('start_time')->get();
+        $sessions = $query->get();
 
         return response()->json(['success' => true, 'data' => $sessions]);
     }
@@ -89,9 +95,38 @@ class ClassSessionController extends Controller
         ], 201);
     }
 
-    public function show(string $id)
+    public function show(Request $request, string $id)
     {
-        $session = ClassSession::with(['classroom.programLevel', 'teacher', 'classSchedule', 'teacherLogbook', 'studentAttendances.student'])->findOrFail($id);
+        $session = ClassSession::with(['classroom.programLevel.program', 'teacher.user', 'classSchedule', 'teacherLogbook', 'studentAttendances.student'])->findOrFail($id);
+        $user = $request->user();
+
+        if ($user && strtolower($user->role) === 'teacher') {
+            $teacherId = Teacher::where('user_id', $user->id)->value('id');
+            if ($session->teacher_id !== $teacherId) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Anda tidak memiliki akses ke sesi ini.'
+                ], 403);
+            }
+        }
+
+        if ($user && strtolower($user->role) === 'parent') {
+            $isEnrolledParent = $session->classroom->enrollments()
+                ->where('status', 'active')
+                ->whereHas('student.parents', function ($p) use ($user) {
+                    $p->where('user_id', $user->id);
+                })
+                ->exists();
+
+            if (!$isEnrolledParent) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Anda tidak memiliki akses ke sesi kelas ini.'
+                ], 403);
+            }
+        }
+
+
         return response()->json(['success' => true, 'data' => $session]);
     }
 
@@ -123,6 +158,17 @@ class ClassSessionController extends Controller
     public function reschedule(Request $request, string $id)
     {
         $session = ClassSession::findOrFail($id);
+        $user = $request->user();
+
+        if ($user && strtolower($user->role) === 'teacher') {
+            $teacherId = Teacher::where('user_id', $user->id)->value('id');
+            if ($session->teacher_id !== $teacherId) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Anda tidak memiliki akses untuk mereschedule sesi ini.'
+                ], 403);
+            }
+        }
 
         $validated = $request->validate([
             'session_date' => 'required|date',
@@ -164,6 +210,17 @@ class ClassSessionController extends Controller
     public function submitAttendanceAndLogbook(Request $request, string $id)
     {
         $session = ClassSession::findOrFail($id);
+        $user = $request->user();
+
+        if ($user && strtolower($user->role) === 'teacher') {
+            $teacherId = Teacher::where('user_id', $user->id)->value('id');
+            if ($session->teacher_id !== $teacherId) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Anda tidak memiliki akses untuk mengisi absensi dan logbook sesi ini.'
+                ], 403);
+            }
+        }
 
         $validated = $request->validate([
             'students' => 'required|array',

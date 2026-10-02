@@ -35,4 +35,14 @@ class Enrollment extends Model
     {
         return $this->belongsTo(ProgramLevel::class, 'program_level_id');
     }
+
+    public function paymentPlans()
+    {
+        return $this->hasMany(PaymentPlan::class);
+    }
+
+    public function payments()
+    {
+        return $this->hasMany(Payment::class);
+    }
 }

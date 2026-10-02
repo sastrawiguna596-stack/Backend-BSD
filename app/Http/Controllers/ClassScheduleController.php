@@ -5,14 +5,41 @@ namespace App\Http\Controllers;
 use App\Models\ClassSchedule;
 use App\Models\ClassSession;
 use App\Models\Holiday;
+use App\Models\Teacher;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
 
 class ClassScheduleController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
-        $schedules = ClassSchedule::with(['classroom', 'teacher'])->get();
+        $user = $request->user();
+        $isTeacher = $user && strtolower($user->role) === 'teacher';
+        $teacherId = null;
+
+        if ($isTeacher) {
+            $teacherId = Teacher::where('user_id', $user->id)->value('id') ?: '00000000-0000-0000-0000-000000000000';
+        }
+
+        $query = ClassSchedule::with(['classroom.programLevel.program', 'teacher.user'])
+            ->when($isTeacher, function ($q) use ($teacherId) {
+                $q->where('teacher_id', $teacherId);
+            })
+            ->when($request->filled('teacher_id') && !$isTeacher, function ($q) use ($request) {
+                $q->where('teacher_id', $request->teacher_id);
+            })
+            ->when($request->filled('classroom_id'), function ($q) use ($request) {
+                $q->where('classroom_id', $request->classroom_id);
+            })
+            ->when($request->filled('day_of_week'), function ($q) use ($request) {
+                $q->where('day_of_week', $request->day_of_week);
+            })
+            ->when($request->has('is_active'), function ($q) use ($request) {
+                $q->where('is_active', filter_var($request->is_active, FILTER_VALIDATE_BOOLEAN));
+            });
+
+        $schedules = $query->get();
         return response()->json(['success' => true, 'data' => $schedules]);
     }
 
@@ -56,9 +83,23 @@ class ClassScheduleController extends Controller
         ], 201);
     }
 
-    public function show(string $id)
+    public function show(Request $request, string $id)
     {
-        $schedule = ClassSchedule::with(['classroom', 'teacher'])->findOrFail($id);
+        $user = $request->user();
+        $isTeacher = $user && strtolower($user->role) === 'teacher';
+
+        $schedule = ClassSchedule::with(['classroom.programLevel.program', 'teacher.user'])->findOrFail($id);
+
+        if ($isTeacher) {
+            $teacherId = Teacher::where('user_id', $user->id)->value('id');
+            if ($schedule->teacher_id !== $teacherId) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Anda tidak memiliki akses ke data jadwal ini.'
+                ], 403);
+            }
+        }
+
         return response()->json(['success' => true, 'data' => $schedule]);
     }
 
@@ -154,46 +195,56 @@ class ClassScheduleController extends Controller
             $sessionNumber = $maxExistingSession + 1;
         }
 
-        while (count($sessionsCreated) < $totalSessions) {
-            $dateString = $currentDate->format('Y-m-d');
+        DB::transaction(function () use (
+            $totalSessions,
+            $schedule,
+            &$currentDate,
+            &$sessionsCreated,
+            &$skippedHolidays,
+            &$conflicts,
+            &$sessionNumber
+        ) {
+            while (count($sessionsCreated) < $totalSessions) {
+                $dateString = $currentDate->format('Y-m-d');
 
-            $isHoliday = Holiday::where('holiday_date', $dateString)
-                            ->where('is_active', true)
-                            ->exists();
+                $isHoliday = Holiday::where('holiday_date', $dateString)
+                                ->where('is_active', true)
+                                ->exists();
 
-            if ($isHoliday) {
-                $skippedHolidays[] = $dateString;
+                if ($isHoliday) {
+                    $skippedHolidays[] = $dateString;
+                    $currentDate->addWeek();
+                    continue;
+                }
+
+                if (ClassSession::hasConflict(
+                    $schedule->classroom_id,
+                    $schedule->teacher_id,
+                    $dateString,
+                    $schedule->start_time,
+                    $schedule->end_time
+                )) {
+                    $conflicts[] = $dateString;
+                    $currentDate->addWeek();
+                    continue;
+                }
+
+                $session = ClassSession::create([
+                    'classroom_id' => $schedule->classroom_id,
+                    'teacher_id' => $schedule->teacher_id,
+                    'class_schedule_id' => $schedule->id,
+                    'session_number' => $sessionNumber,
+                    'session_date' => $dateString,
+                    'start_time' => $schedule->start_time,
+                    'end_time' => $schedule->end_time,
+                    'status' => 'scheduled'
+                ]);
+
+                $sessionsCreated[] = $session;
+                $sessionNumber++;
                 $currentDate->addWeek();
-                continue;
             }
-
-            if (ClassSession::hasConflict(
-                $schedule->classroom_id,
-                $schedule->teacher_id,
-                $dateString,
-                $schedule->start_time,
-                $schedule->end_time
-            )) {
-                $conflicts[] = $dateString;
-                $currentDate->addWeek();
-                continue;
-            }
-
-            $session = ClassSession::create([
-                'classroom_id' => $schedule->classroom_id,
-                'teacher_id' => $schedule->teacher_id,
-                'class_schedule_id' => $schedule->id,
-                'session_number' => $sessionNumber,
-                'session_date' => $dateString,
-                'start_time' => $schedule->start_time,
-                'end_time' => $schedule->end_time,
-                'status' => 'scheduled'
-            ]);
-
-            $sessionsCreated[] = $session;
-            $sessionNumber++;
-            $currentDate->addWeek();
-        }
+        });
 
         return response()->json([
             'success' => true,

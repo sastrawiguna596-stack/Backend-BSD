@@ -27,7 +27,7 @@ class CashTransactionController extends Controller
             'submitter:id,name,email',
             'verifier:id,name,email',
         ])
-        ->when($user->role === 'parent', function ($q) use ($user) {
+        ->when($user && strtolower($user->role) === 'parent', function ($q) use ($user) {
             $q->where('submitted_by', $user->id);
         })
         ->when($request->filled('status'), function ($q) use ($request) {
@@ -44,7 +44,7 @@ class CashTransactionController extends Controller
         })
         ->orderBy('submitted_at', 'desc');
 
-        $transactions = $query->paginate($request->get('per_page', 15));
+        $transactions = $query->paginate((int) $request->input('per_page', 15));
 
         return response()->json([
             'success' => true,
@@ -68,7 +68,7 @@ class CashTransactionController extends Controller
             'verifier:id,name,email',
         ])->findOrFail($id);
 
-        if ($user->role === 'parent' && $cashTransaction->submitted_by !== $user->id) {
+        if ($user && strtolower($user->role) === 'parent' && $cashTransaction->submitted_by !== $user->id) {
             return response()->json([
                 'success' => false,
                 'message' => 'Akses ditolak. Anda hanya dapat melihat pengajuan pembayaran milik Anda.',
@@ -91,7 +91,8 @@ class CashTransactionController extends Controller
             'payment_plan_id' => 'required|uuid|exists:payment_plans,id',
             'receipt_number'  => 'nullable|string|max:100',
             'notes'           => 'nullable|string|max:500',
-            'proof_image'     => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:2048', // 2MB max
+            'proof_image'     => 'nullable|file|mimes:jpg,jpeg,png,webp,heic,heif,pdf|max:10240', // Max 10MB, support iPhone HEIC/HEIF, Android WEBP, JPEG/PNG/PDF
+            'payment_type'    => 'nullable|string|in:per_pertemuan,pelunasan',
         ]);
 
         $paymentPlan = PaymentPlan::with(['enrollment.student', 'enrollment.program'])->findOrFail($validated['payment_plan_id']);
@@ -120,6 +121,16 @@ class CashTransactionController extends Controller
         $enrollment = $paymentPlan->enrollment;
         $student = $enrollment->student;
 
+        if ($user && strtolower($user->role) === 'parent') {
+            $isAuthorizedParent = $student && $student->parents()->where('user_id', $user->id)->exists();
+            if (!$isAuthorizedParent) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Anda tidak memiliki hak untuk mengajukan pembayaran pada tagihan siswa ini.'
+                ], 403);
+            }
+        }
+
         // Upload bukti fisik opsional jika ada
         $proofPath = null;
         if ($request->hasFile('proof_image')) {
@@ -127,7 +138,19 @@ class CashTransactionController extends Controller
         }
 
         return DB::transaction(function () use ($paymentPlan, $enrollment, $student, $user, $validated, $proofPath) {
-            $amount = (float) $paymentPlan->amount;
+            $isPelunasan = ($validated['payment_type'] ?? 'per_pertemuan') === 'pelunasan';
+
+            if ($isPelunasan) {
+                $unpaidPlans = PaymentPlan::where('enrollment_id', $enrollment->id)
+                    ->where('is_paid', false)
+                    ->get();
+                $amount = (float) $unpaidPlans->sum('amount');
+                $paymentNotes = $validated['notes'] ?? "Pelunasan Sisa Paket ({$unpaidPlans->count()} Sesi)";
+            } else {
+                $amount = (float) $paymentPlan->amount;
+                $paymentNotes = $validated['notes'] ?? null;
+            }
+
             $year = date('Y');
 
             // Generate kode unik CASH-2026-xxxx
@@ -158,7 +181,7 @@ class CashTransactionController extends Controller
                 'reference_number' => $cashCode,
                 'payment_status'   => 'pending',
                 'created_by'       => $user->id,
-                'notes'            => $validated['notes'] ?? null,
+                'notes'            => $paymentNotes,
             ]);
 
             // 2. Buat detail audit trail cash_transactions
@@ -174,7 +197,7 @@ class CashTransactionController extends Controller
                 'submitted_at'     => Carbon::now(),
                 'receipt_number'   => $validated['receipt_number'] ?? null,
                 'proof_image'      => $proofPath ? Storage::url($proofPath) : null,
-                'notes'            => $validated['notes'] ?? null,
+                'notes'            => $paymentNotes,
             ]);
 
             return response()->json([
@@ -194,35 +217,38 @@ class CashTransactionController extends Controller
         $validated = $request->validate([
             'admin_notes'    => 'nullable|string|max:500',
             'receipt_number' => 'nullable|string|max:100',
+            'notes'          => 'nullable|string|max:500',
         ]);
 
         $cashTransaction = CashTransaction::with(['paymentPlan', 'payment'])->findOrFail($id);
 
         if ($cashTransaction->status === 'paid') {
             return response()->json([
-                'success' => false,
-                'message' => 'Pembayaran tunai ini sudah pernah dikonfirmasi sebelumnya.',
-            ], 422);
+                'success' => true,
+                'message' => 'Pembayaran tunai ini sudah terkonfirmasi lunas.',
+                'data'    => $cashTransaction,
+            ], 200);
         }
 
         if ($cashTransaction->status === 'rejected') {
             return response()->json([
                 'success' => false,
-                'message' => 'Pembayaran tunai ini sudah berstatus ditolak.',
+                'message' => 'Pembayaran tunai ini sebelumnya sudah berstatus ditolak.',
             ], 422);
         }
 
         $user = $request->user();
+        $adminNote = $validated['admin_notes'] ?? ($validated['notes'] ?? $cashTransaction->admin_notes);
 
-        DB::transaction(function () use ($cashTransaction, $user, $validated) {
+        DB::transaction(function () use ($cashTransaction, $user, $validated, $adminNote) {
             $now = Carbon::now();
 
             // 1. Update status cash_transactions menjadi paid
             $cashTransaction->update([
                 'status'         => 'paid',
-                'verified_by'    => $user->id,
+                'verified_by'    => $user ? $user->id : null,
                 'verified_at'    => $now,
-                'admin_notes'    => $validated['admin_notes'] ?? $cashTransaction->admin_notes,
+                'admin_notes'    => $adminNote,
                 'receipt_number' => $validated['receipt_number'] ?? $cashTransaction->receipt_number,
             ]);
 
@@ -231,12 +257,22 @@ class CashTransactionController extends Controller
                 $cashTransaction->payment->update([
                     'payment_status' => 'paid',
                     'paid_at'        => $now,
-                    'verified_by'    => $user->id,
+                    'verified_by'    => $user ? $user->id : null,
                 ]);
             }
 
             // 3. Update status tagihan payment_plans menjadi lunas
-            if ($cashTransaction->paymentPlan) {
+            $isPelunasan = ($cashTransaction->notes && str_contains(strtolower($cashTransaction->notes), 'pelunasan'))
+                || ($cashTransaction->payment && $cashTransaction->payment->notes && str_contains(strtolower($cashTransaction->payment->notes), 'pelunasan'));
+
+            if ($isPelunasan) {
+                PaymentPlan::where('enrollment_id', $cashTransaction->enrollment_id)
+                    ->where('is_paid', false)
+                    ->update([
+                        'is_paid' => true,
+                        'status'  => 'paid',
+                    ]);
+            } elseif ($cashTransaction->paymentPlan) {
                 $cashTransaction->paymentPlan->update([
                     'is_paid' => true,
                     'status'  => 'paid',
@@ -262,9 +298,12 @@ class CashTransactionController extends Controller
      */
     public function reject(Request $request, string $id)
     {
-        $validated = $request->validate([
-            'rejection_reason' => 'required|string|max:500',
-        ]);
+        // Mendukung berbagai format payload: rejection_reason, admin_notes, notes, atau reason
+        $reason = $request->input('rejection_reason')
+            ?? $request->input('admin_notes')
+            ?? $request->input('notes')
+            ?? $request->input('reason')
+            ?? 'Pengajuan pembayaran tunai ditolak oleh kasir.';
 
         $cashTransaction = CashTransaction::with(['paymentPlan', 'payment'])->findOrFail($id);
 
@@ -277,29 +316,31 @@ class CashTransactionController extends Controller
 
         $user = $request->user();
 
-        DB::transaction(function () use ($cashTransaction, $user, $validated) {
+        DB::transaction(function () use ($cashTransaction, $user, $reason) {
             $cashTransaction->update([
                 'status'           => 'rejected',
-                'verified_by'      => $user->id,
+                'verified_by'      => $user ? $user->id : null,
                 'verified_at'      => Carbon::now(),
-                'rejection_reason' => $validated['rejection_reason'],
+                'rejection_reason' => $reason,
+                'admin_notes'      => $reason,
             ]);
 
             if ($cashTransaction->payment) {
                 $cashTransaction->payment->update([
                     'payment_status' => 'failed',
-                    'verified_by'    => $user->id,
-                    'notes'          => 'Ditolak admin: ' . $validated['rejection_reason'],
+                    'verified_by'    => $user ? $user->id : null,
+                    'notes'          => 'Ditolak admin: ' . $reason,
                 ]);
             }
         });
 
         return response()->json([
             'success' => true,
-            'message' => 'Pengajuan pembayaran tunai berhasil ditolak.',
+            'message' => 'Pembayaran tunai berhasil ditolak.',
             'data'    => $cashTransaction->fresh([
                 'paymentPlan',
                 'payment',
+                'enrollment.student',
                 'submitter:id,name,email',
                 'verifier:id,name,email',
             ]),

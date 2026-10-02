@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Enrollment;
 use App\Models\Payment;
 use App\Models\PaymentPlan;
 use App\Services\PaymentGatewayService;
@@ -34,6 +33,14 @@ class PaymentController extends Controller
             'creator',
             'verifier',
         ])
+        ->when($request->user() && strtolower($request->user()->role) === 'parent', function ($q) use ($request) {
+            $q->where(function ($sub) use ($request) {
+                $sub->where('created_by', $request->user()->id)
+                    ->orWhereHas('enrollment.student.parents', function ($p) use ($request) {
+                        $p->where('user_id', $request->user()->id);
+                    });
+            });
+        })
         ->when($request->filled('status'), function ($q) use ($request) {
             $q->where('payment_status', $request->status);
         })
@@ -51,7 +58,7 @@ class PaymentController extends Controller
         })
         ->orderBy('created_at', 'desc');
 
-        $payments = $query->paginate($request->get('per_page', 15));
+        $payments = $query->paginate((int) $request->input('per_page', 15));
 
         return response()->json([
             'success' => true,
@@ -71,6 +78,7 @@ class PaymentController extends Controller
             'expired_time'    => 'nullable|string|max:10', // e.g: 30m, 24h
             'type_fee'        => 'nullable|string|in:user,merchant',
             'notes'           => 'nullable|string|max:255',
+            'payment_type'    => 'nullable|string|in:per_pertemuan,pelunasan',
         ]);
 
         $paymentPlan = PaymentPlan::with(['enrollment.student', 'enrollment.program'])->findOrFail($validated['payment_plan_id']);
@@ -86,18 +94,55 @@ class PaymentController extends Controller
         $student = $enrollment->student;
         $user = $request->user();
 
-        $amount = (float) $paymentPlan->amount;
-        $paymentMethod = strtolower($validated['payment_method']);
-        $paymentChannel = $validated['payment_channel'] ?? ($paymentMethod === 'qris' ? $this->gatewayService->resolveActiveQrisChannel() : ($paymentMethod === 'va' ? 'BCVA' : 'SHOPEEPAY'));
+        if ($user && strtolower($user->role) === 'parent') {
+            $isAuthorizedParent = $student->parents()->where('user_id', $user->id)->exists();
+            if (!$isAuthorizedParent) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Anda tidak memiliki hak untuk melakukan pembayaran pada tagihan siswa ini.'
+                ], 403);
+            }
+        }
 
-        // Cek apakah sudah ada transaksi pending yang masih aktif dan belum kedaluwarsa untuk metode yang sama
+        $isPelunasan = ($validated['payment_type'] ?? 'per_pertemuan') === 'pelunasan';
+
+        // Jika pelunasan, hitung seluruh sisa sesi yang belum lunas
+        if ($isPelunasan) {
+            $unpaidPlans = PaymentPlan::where('enrollment_id', $enrollment->id)
+                ->where('is_paid', false)
+                ->get();
+            $amount = (float) $unpaidPlans->sum('amount');
+            $noteText = "Pelunasan Paket {$enrollment->program?->name} ({$unpaidPlans->count()} Sesi - {$enrollment->enrollment_code})";
+            $paymentNotes = $validated['notes'] ?? "Pelunasan Sisa Paket ({$unpaidPlans->count()} Sesi)";
+        } else {
+            $amount = (float) $paymentPlan->amount;
+            $noteText = "Pembayaran Tagihan Sesi #{$paymentPlan->session_number} ({$enrollment->enrollment_code})";
+            $paymentNotes = $validated['notes'] ?? null;
+        }
+
+        $paymentMethod = strtolower($validated['payment_method']);
+        $rawChannel = $validated['payment_channel'] ?? ($paymentMethod === 'qris' ? $this->gatewayService->resolveActiveQrisChannel() : ($paymentMethod === 'va' ? 'BCAVA' : 'SHOPEEPAY'));
+        $paymentChannel = $this->gatewayService->mapPaymentChannel($paymentMethod, $rawChannel);
+
+        // Waktu expired default 30 menit ('30m') untuk semua channel digital (QRIS, VA, E-Wallet)
+        $expiredTime = $validated['expired_time'] ?? '30m';
+
+        // Otomatis tandai transaksi yang sudah melewati batas waktu expired_at menjadi 'expired' (menggunakan waktu Asia/Jakarta)
+        Payment::where('payment_plan_id', $paymentPlan->id)
+            ->where('payment_status', 'pending')
+            ->whereNotNull('expired_at')
+            ->where('expired_at', '<=', Carbon::now('Asia/Jakarta'))
+            ->update(['payment_status' => 'expired']);
+
+        // Cek apakah sudah ada transaksi pending yang masih aktif dan belum kedaluwarsa untuk metode dan channel yang sama
         $existingPayment = Payment::where('payment_plan_id', $paymentPlan->id)
             ->where('payment_status', 'pending')
             ->where('payment_method', $paymentMethod)
             ->where('payment_channel', $paymentChannel)
+            ->where('amount', $amount)
             ->where(function ($query) {
                 $query->whereNull('expired_at')
-                      ->orWhere('expired_at', '>', Carbon::now());
+                      ->orWhere('expired_at', '>', Carbon::now('Asia/Jakarta'));
             })
             ->latest()
             ->first();
@@ -119,7 +164,7 @@ class PaymentController extends Controller
                         'amount'          => $existingPayment->amount,
                         'fee'             => $existingPayment->fee,
                         'total_amount'    => $existingPayment->total_amount,
-                        'expired_at'      => $existingPayment->expired_at ? $existingPayment->expired_at->toIso8601String() : null,
+                        'expired_at'      => $existingPayment->expired_at ? Carbon::parse($existingPayment->expired_at, 'Asia/Jakarta')->setTimezone('Asia/Jakarta')->toIso8601String() : null,
                     ]
                 ]
             ], 200);
@@ -129,15 +174,15 @@ class PaymentController extends Controller
         $paymentCode = 'INV-' . date('ymd') . '-' . strtoupper(bin2hex(random_bytes(2)));
 
         try {
-            // Request ke Payment Gateway (pay.zannstore.com)
+            // Request ke Payment Gateway (pay.zannstore.com) dengan expired_time default 2h (2 jam)
             $gatewayResult = $this->gatewayService->createTransaction([
                 'payment_code'    => $paymentCode,
                 'amount'          => $amount,
                 'payment_method'  => $paymentMethod,
                 'payment_channel' => $paymentChannel,
                 'customer_name'   => $student->full_name ?? ($user->name ?? 'Orang Tua Siswa'),
-                'note'            => "Pembayaran Tagihan Sesi #{$paymentPlan->session_number} ({$enrollment->enrollment_code})",
-                'expired_time'    => $validated['expired_time'] ?? '30m',
+                'note'            => $noteText,
+                'expired_time'    => $expiredTime,
                 'type_fee'        => $validated['type_fee'] ?? 'user',
             ]);
         } catch (\Exception $e) {
@@ -150,7 +195,7 @@ class PaymentController extends Controller
         $fee = (float) ($gatewayResult['fee'] ?? 0);
         $totalAmount = (float) ($gatewayResult['total_amount'] ?? ($amount + $fee));
 
-        // Simpan data transaksi ke database
+        // Simpan data transaksi ke database (expired_at disimpan dalam zona waktu Asia/Jakarta)
         $payment = Payment::create([
             'payment_code'     => $paymentCode,
             'payment_plan_id'  => $paymentPlan->id,
@@ -168,9 +213,9 @@ class PaymentController extends Controller
             'qr_url'           => $gatewayResult['qr_url'] ?? null,
             'checkout_url'     => $gatewayResult['checkout_url'] ?? null,
             'payment_status'   => 'pending',
-            'expired_at'       => $gatewayResult['expired_at'] ?? now()->addMinutes(30),
+            'expired_at'       => $gatewayResult['expired_at'] ?? Carbon::now('Asia/Jakarta')->addMinutes(30),
             'created_by'       => $user ? $user->id : null,
-            'notes'            => $validated['notes'] ?? null,
+            'notes'            => $paymentNotes,
         ]);
 
         // Response terstruktur untuk Frontend (React)
@@ -190,7 +235,7 @@ class PaymentController extends Controller
                     'amount'          => $payment->amount,
                     'fee'             => $payment->fee,
                     'total_amount'    => $payment->total_amount,
-                    'expired_at'      => $payment->expired_at ? $payment->expired_at->toIso8601String() : null,
+                    'expired_at'      => $payment->expired_at ? Carbon::parse($payment->expired_at, 'Asia/Jakarta')->setTimezone('Asia/Jakarta')->toIso8601String() : null,
                 ]
             ]
         ], 201);
@@ -229,7 +274,7 @@ class PaymentController extends Controller
             return response()->json(['success' => false, 'message' => 'Payment record not found.'], 404);
         }
 
-        DB::transaction(function () use ($payment, $status, $payload) {
+        DB::transaction(function () use ($payment, $status) {
             if (in_array($status, ['success', 'settled', 'paid', 'berhasil', 'capture'])) {
                 $payment->update([
                     'payment_status' => 'paid',
@@ -237,7 +282,14 @@ class PaymentController extends Controller
                 ]);
 
                 // Update tagihan terkait di payment_plans menjadi lunas
-                if ($payment->paymentPlan) {
+                if ($payment->notes && str_contains(strtolower($payment->notes), 'pelunasan')) {
+                    PaymentPlan::where('enrollment_id', $payment->enrollment_id)
+                        ->where('is_paid', false)
+                        ->update([
+                            'is_paid' => true,
+                            'status'  => 'paid',
+                        ]);
+                } elseif ($payment->paymentPlan) {
                     $payment->paymentPlan->update([
                         'is_paid' => true,
                         'status'  => 'paid',
@@ -263,7 +315,7 @@ class PaymentController extends Controller
     /**
      * Detail riwayat pembayaran
      */
-    public function show(string $id)
+    public function show(Request $request, string $id)
     {
         $payment = Payment::with([
             'paymentPlan',
@@ -273,6 +325,19 @@ class PaymentController extends Controller
             'creator',
             'verifier',
         ])->findOrFail($id);
+
+        $user = $request->user();
+        if ($user && strtolower($user->role) === 'parent') {
+            $isAuthorized = $payment->created_by === $user->id
+                || ($payment->enrollment && $payment->enrollment->student && $payment->enrollment->student->parents()->where('user_id', $user->id)->exists());
+
+            if (!$isAuthorized) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Anda tidak memiliki akses ke data pembayaran ini.'
+                ], 403);
+            }
+        }
 
         return response()->json([
             'success' => true,
@@ -309,11 +374,69 @@ class PaymentController extends Controller
     }
 
     /**
-     * Mengecek status transaksi saat ini (polling dari tombol Cek Status di Frontend)
+     * Mengecek status transaksi saat ini (polling dari Frontend).
+     * Otomatis mendeteksi lingkungan:
+     * - Production: Mengandalkan Webhook instan dari Payment Gateway.
+     * - Localhost / Non-Production: Mengaktifkan Auto-Sync langsung ke Gateway saat status transaksi masih pending.
      */
     public function checkStatus(string $id)
     {
         $payment = Payment::with(['paymentPlan'])->findOrFail($id);
+
+        $appUrl = config('app.url', '');
+        $isLocal = app()->isLocal()
+            || !app()->isProduction()
+            || str_contains($appUrl, 'localhost')
+            || str_contains($appUrl, '127.0.0.1');
+
+        // Jika di Local / Non-Production dan transaksi masih pending, aktifkan auto-sync langsung ke Gateway
+        if ($payment->payment_status === 'pending' && $isLocal) {
+            try {
+                $gatewayData = $this->gatewayService->checkTransactionStatus($payment->payment_code);
+                if ($gatewayData) {
+                    $status = strtolower($gatewayData['status'] ?? ($gatewayData['transaction_status'] ?? ''));
+                    if (in_array($status, ['success', 'settled', 'paid', 'berhasil', 'capture'])) {
+                        $paidAt = !empty($gatewayData['paid_at']) ? Carbon::parse($gatewayData['paid_at'], 'Asia/Jakarta') : Carbon::now('Asia/Jakarta');
+                        $trxSvr = $gatewayData['trx_svr'] ?? ($gatewayData['reference_number'] ?? null);
+
+                        DB::transaction(function () use ($payment, $paidAt, $trxSvr) {
+                            $updateData = [
+                                'payment_status' => 'paid',
+                                'paid_at'        => $paidAt,
+                            ];
+                            if ($trxSvr) {
+                                $updateData['reference_number'] = $trxSvr;
+                            }
+
+                            $payment->update($updateData);
+
+                            if ($payment->notes && str_contains(strtolower($payment->notes), 'pelunasan')) {
+                                PaymentPlan::where('enrollment_id', $payment->enrollment_id)
+                                    ->where('is_paid', false)
+                                    ->update([
+                                        'is_paid' => true,
+                                        'status'  => 'paid',
+                                    ]);
+                            } elseif ($payment->paymentPlan) {
+                                $payment->paymentPlan->update([
+                                    'is_paid' => true,
+                                    'status'  => 'paid',
+                                ]);
+                            }
+                        });
+                        $payment->refresh();
+                    } elseif (in_array($status, ['expired', 'expire', 'kadaluarsa'])) {
+                        $payment->update(['payment_status' => 'expired']);
+                        $payment->refresh();
+                    } elseif (in_array($status, ['failed', 'gagal', 'deny', 'cancel', 'batal'])) {
+                        $payment->update(['payment_status' => 'failed']);
+                        $payment->refresh();
+                    }
+                }
+            } catch (\Exception $e) {
+                Log::warning('Local Auto Check Status Error: ' . $e->getMessage());
+            }
+        }
 
         return response()->json([
             'success' => true,
@@ -324,6 +447,7 @@ class PaymentController extends Controller
                 'is_paid'        => $payment->payment_status === 'paid',
                 'paid_at'        => $payment->paid_at ? $payment->paid_at->toIso8601String() : null,
                 'total_amount'   => $payment->total_amount,
+                'mode'           => $isLocal ? 'local_auto_sync' : 'production_webhook',
             ]
         ]);
     }

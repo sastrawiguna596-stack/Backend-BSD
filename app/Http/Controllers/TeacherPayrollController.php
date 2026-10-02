@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Teacher;
 use App\Models\TeacherPayroll;
 use App\Models\TeacherLogbook;
 use App\Models\TeacherHourlyRate;
@@ -11,15 +12,44 @@ use Illuminate\Support\Facades\DB;
 
 class TeacherPayrollController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
-        $payrolls = TeacherPayroll::with('teacher')->get();
+        $user = $request->user();
+        $isTeacher = $user && strtolower($user->role) === 'teacher';
+        $teacherId = null;
+
+        if ($isTeacher) {
+            $teacherId = Teacher::where('user_id', $user->id)->value('id') ?: '00000000-0000-0000-0000-000000000000';
+        }
+
+        $query = TeacherPayroll::with('teacher.user')
+            ->when($isTeacher, function ($q) use ($teacherId) {
+                $q->where('teacher_id', $teacherId);
+            })
+            ->when($request->filled('teacher_id') && !$isTeacher, function ($q) use ($request) {
+                $q->where('teacher_id', $request->teacher_id);
+            })
+            ->latest('period_start');
+
+        $payrolls = $query->get();
         return response()->json(['success' => true, 'data' => $payrolls]);
     }
 
-    public function show(string $id)
+    public function show(Request $request, string $id)
     {
-        $payroll = TeacherPayroll::with('teacher')->findOrFail($id);
+        $payroll = TeacherPayroll::with('teacher.user')->findOrFail($id);
+        $user = $request->user();
+
+        if ($user && strtolower($user->role) === 'teacher') {
+            $myTeacherId = Teacher::where('user_id', $user->id)->value('id');
+            if ($payroll->teacher_id !== $myTeacherId) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Anda tidak memiliki akses ke data payroll ini.'
+                ], 403);
+            }
+        }
+
         return response()->json(['success' => true, 'data' => $payroll]);
     }
 

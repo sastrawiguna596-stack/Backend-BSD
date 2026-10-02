@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Assessment;
 use App\Models\Enrollment;
 use App\Models\FinalReport;
+use App\Models\Teacher;
 use Illuminate\Http\Request;
 
 class FinalReportController extends Controller
@@ -15,7 +16,26 @@ class FinalReportController extends Controller
      */
     public function index(Request $request)
     {
-        $reports = FinalReport::with(['student', 'enrollment.programLevel', 'verifiedBy'])
+        $user = $request->user();
+        $isTeacher = $user && strtolower($user->role) === 'teacher';
+        $isParent = $user && strtolower($user->role) === 'parent';
+        $teacherId = null;
+
+        if ($isTeacher) {
+            $teacherId = Teacher::where('user_id', $user->id)->value('id') ?: '00000000-0000-0000-0000-000000000000';
+        }
+
+        $reports = FinalReport::with(['student', 'enrollment.programLevel', 'enrollment.classroom', 'verifiedBy'])
+            ->when($isParent, function ($q) use ($user) {
+                $q->whereHas('student.parents', function ($p) use ($user) {
+                    $p->where('user_id', $user->id);
+                });
+            })
+            ->when($isTeacher, function ($q) use ($teacherId) {
+                $q->whereHas('enrollment.classroom.teachers', function ($t) use ($teacherId) {
+                    $t->where('teachers.id', $teacherId);
+                });
+            })
             ->when($request->student_id, fn($q) => $q->where('student_id', $request->student_id))
             ->when($request->graduation_status, fn($q) => $q->where('graduation_status', $request->graduation_status))
             ->latest()
