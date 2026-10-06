@@ -147,6 +147,7 @@ class ParentController extends Controller
             'password'     => 'nullable|string|min:8',
             'relationship' => 'nullable|string|max:50',
             'address'      => 'nullable|string',
+            'is_active'    => 'sometimes|boolean',
         ]);
 
         DB::transaction(function () use ($parent, $validated) {
@@ -156,6 +157,7 @@ class ParentController extends Controller
                 'email'         => $validated['email'] ?? null,
                 'phone'         => $validated['phone'] ?? null,
                 'password_hash' => isset($validated['password']) ? Hash::make($validated['password']) : null,
+                'is_active'     => $validated['is_active'] ?? null,
             ], fn($v) => ! is_null($v));
 
             if (! empty($userFields)) {

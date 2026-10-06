@@ -35,8 +35,8 @@ class AuthController extends Controller
             ], 403);
         }
 
-        // Hapus token lama agar tidak menumpuk
-        $user->tokens()->delete();
+        // Bersihkan token yang sudah usang (> 30 hari) tanpa mematikan sesi aktif di tab/perangkat lain
+        $user->tokens()->where('created_at', '<', now()->subDays(30))->delete();
 
         $token = $user->createToken('auth_token')->plainTextToken;
 
