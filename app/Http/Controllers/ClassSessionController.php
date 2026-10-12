@@ -25,7 +25,12 @@ class ClassSessionController extends Controller
 
         $query = ClassSession::with(['classroom.programLevel.program', 'teacher.user', 'classSchedule', 'teacherLogbook', 'studentAttendances.student'])
             ->when($isTeacher, function ($q) use ($teacherId) {
-                $q->where('teacher_id', $teacherId);
+                $q->where(function ($sub) use ($teacherId) {
+                    $sub->where('teacher_id', $teacherId)
+                        ->orWhereHas('classroom.teachers', function ($ct) use ($teacherId) {
+                            $ct->where('teachers.id', $teacherId);
+                        });
+                });
             })
             ->when($isParent, function ($q) use ($user) {
                 $q->whereHas('classroom.enrollments', function ($enr) use ($user) {
@@ -57,6 +62,26 @@ class ClassSessionController extends Controller
 
     public function store(Request $request)
     {
+        $user = $request->user();
+        $isTeacher = $user && strtolower($user->role) === 'teacher';
+
+        if (!$request->filled('teacher_id')) {
+            if ($isTeacher) {
+                $tId = Teacher::where('user_id', $user->id)->value('id');
+                if ($tId) $request->merge(['teacher_id' => $tId]);
+            }
+            if (!$request->filled('teacher_id') && $request->filled('classroom_id')) {
+                $classroom = \App\Models\Classroom::find($request->classroom_id);
+                $firstTeacher = $classroom?->teachers()->first();
+                if ($firstTeacher) $request->merge(['teacher_id' => $firstTeacher->id]);
+            }
+        }
+
+        if (!$request->filled('session_number') && $request->filled('classroom_id')) {
+            $maxNum = ClassSession::where('classroom_id', $request->classroom_id)->max('session_number') ?? 0;
+            $request->merge(['session_number' => $maxNum + 1]);
+        }
+
         $validated = $request->validate([
             'classroom_id' => 'required|uuid|exists:classrooms,id',
             'teacher_id' => 'required|uuid|exists:teachers,id',
@@ -87,6 +112,7 @@ class ClassSessionController extends Controller
         }
 
         $session = ClassSession::create($validated);
+        $session->load(['classroom.programLevel.program', 'teacher.user', 'classSchedule']);
 
         return response()->json([
             'success' => true,
@@ -102,7 +128,9 @@ class ClassSessionController extends Controller
 
         if ($user && strtolower($user->role) === 'teacher') {
             $teacherId = Teacher::where('user_id', $user->id)->value('id');
-            if ($session->teacher_id !== $teacherId) {
+            $hasAccess = ($session->teacher_id === $teacherId)
+                || ($session->classroom && $session->classroom->teachers()->where('teachers.id', $teacherId)->exists());
+            if (!$hasAccess) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Anda tidak memiliki akses ke sesi ini.'
@@ -162,7 +190,9 @@ class ClassSessionController extends Controller
 
         if ($user && strtolower($user->role) === 'teacher') {
             $teacherId = Teacher::where('user_id', $user->id)->value('id');
-            if ($session->teacher_id !== $teacherId) {
+            $hasAccess = ($session->teacher_id === $teacherId)
+                || ($session->classroom && $session->classroom->teachers()->where('teachers.id', $teacherId)->exists());
+            if (!$hasAccess) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Anda tidak memiliki akses untuk mereschedule sesi ini.'
@@ -212,9 +242,12 @@ class ClassSessionController extends Controller
         $session = ClassSession::findOrFail($id);
         $user = $request->user();
 
+        $teacherId = null;
         if ($user && strtolower($user->role) === 'teacher') {
             $teacherId = Teacher::where('user_id', $user->id)->value('id');
-            if ($session->teacher_id !== $teacherId) {
+            $hasAccess = ($session->teacher_id === $teacherId)
+                || ($session->classroom && $session->classroom->teachers()->where('teachers.id', $teacherId)->exists());
+            if (!$hasAccess) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Anda tidak memiliki akses untuk mengisi absensi dan logbook sesi ini.'
@@ -254,13 +287,17 @@ class ClassSessionController extends Controller
                 ]);
             }
 
+            $actualTeacherId = ($user && strtolower($user->role) === 'teacher' && !empty($teacherId))
+                ? $teacherId
+                : ($session->teacher_id ?: $teacherId);
+
             TeacherLogbook::where('class_session_id', $session->id)
-                ->where('teacher_id', $session->teacher_id)
+                ->where('teacher_id', $actualTeacherId)
                 ->delete();
 
             $logbook = TeacherLogbook::create([
                 'class_session_id' => $session->id,
-                'teacher_id' => $session->teacher_id,
+                'teacher_id' => $actualTeacherId,
                 'check_in' => $validated['logbook']['check_in'],
                 'check_out' => $validated['logbook']['check_out'],
                 'teaching_minutes' => $validated['logbook']['teaching_minutes'],

@@ -12,6 +12,13 @@ class Teacher extends Model
 
     protected $guarded = [];
 
+    protected $appends = ['name'];
+
+    public function getNameAttribute()
+    {
+        return $this->user?->name;
+    }
+
     public function user()
     {
         return $this->belongsTo(User::class);

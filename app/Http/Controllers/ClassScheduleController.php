@@ -101,6 +101,7 @@ class ClassScheduleController extends Controller
         }
 
         $schedule = ClassSchedule::create($validated);
+        $schedule->load(['classroom.programLevel.program', 'teacher.user']);
 
         return response()->json([
             'success' => true,
@@ -186,7 +187,7 @@ class ClassScheduleController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Jadwal reguler berhasil diperbarui.',
-            'data' => $schedule->fresh()
+            'data' => $schedule->fresh()->load(['classroom.programLevel.program', 'teacher.user'])
         ]);
     }
 
