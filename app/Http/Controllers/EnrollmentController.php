@@ -205,7 +205,7 @@ class EnrollmentController extends Controller
                     ? (int) $validated['installments']
                     : max(1, (int) ceil($totalSessions / ($sessionsPerWeek * 4)));
 
-                $amountPerInstallment = round($totalAmount / $installments, 2);
+                $amountPerInstallment = (int) round($totalAmount / $installments);
 
                 for ($i = 1; $i <= $installments; $i++) {
                     $dueDate = Carbon::parse($validated['start_date'])
@@ -228,7 +228,7 @@ class EnrollmentController extends Controller
                     ? (int) $validated['installments']
                     : $totalSessions;
 
-                $amountPerPart = round($totalAmount / $installments, 2);
+                $amountPerPart = (int) round($totalAmount / $installments);
                 $stepDays = $installments > 1
                     ? max(3, (int) round(($totalSessions / $sessionsPerWeek * 7) / $installments))
                     : 7;

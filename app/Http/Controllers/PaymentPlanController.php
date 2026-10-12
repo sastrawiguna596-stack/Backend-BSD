@@ -27,7 +27,7 @@ class PaymentPlanController extends Controller
             foreach ($enrollmentsWithoutPlans as $enr) {
                 $totalSessions = (int) ($enr->total_sessions ?: 8);
                 $totalAmount = (float) ($enr->total_amount ?: (50000 * $totalSessions));
-                $amountPerSession = round($totalAmount / $totalSessions, 2);
+                $amountPerSession = (int) round($totalAmount / $totalSessions);
                 $startDate = $enr->start_date ?: now();
 
                 for ($i = 1; $i <= $totalSessions; $i++) {
@@ -163,8 +163,8 @@ class PaymentPlanController extends Controller
                 // Skema Bertahap / Milestone Kustom
                 foreach ($validated['custom_schedules'] as $item) {
                     $amount = isset($item['amount'])
-                        ? (float)$item['amount']
-                        : round(($totalAmount * ((float)$item['percentage'] / 100)), 2);
+                        ? (int) round((float)$item['amount'])
+                        : (int) round(($totalAmount * ((float)$item['percentage'] / 100)));
 
                     $plan = PaymentPlan::create([
                         'enrollment_id'  => $enrollment->id,
@@ -182,7 +182,7 @@ class PaymentPlanController extends Controller
                 $installments = $validated['installments'] ?? 1;
                 $firstDueDate = $validated['first_due_date'] ?? now()->toDateString();
                 $intervalWeeks = $validated['interval_weeks'] ?? 4;
-                $amountPerInstallment = round($totalAmount / $installments, 2);
+                $amountPerInstallment = (int) round($totalAmount / $installments);
 
                 for ($i = 1; $i <= $installments; $i++) {
                     $dueDate = Carbon::parse($firstDueDate)
