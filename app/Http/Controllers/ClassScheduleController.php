@@ -17,14 +17,27 @@ class ClassScheduleController extends Controller
         $user = $request->user();
         $isTeacher = $user && strtolower($user->role) === 'teacher';
         $teacherId = null;
+        $today = Carbon::today()->toDateString();
 
         if ($isTeacher) {
-            $teacherId = Teacher::where('user_id', $user->id)->value('id') ?: '00000000-0000-0000-0000-000000000000';
+            $teacher = Teacher::where('user_id', $user->id)->first();
+            $teacherId = ($teacher && $teacher->is_active) ? $teacher->id : '00000000-0000-0000-0000-000000000000';
         }
 
         $query = ClassSchedule::with(['classroom.programLevel.program', 'teacher.user'])
-            ->when($isTeacher, function ($q) use ($teacherId) {
-                $q->where('teacher_id', $teacherId);
+            ->when($isTeacher, function ($q) use ($teacherId, $today) {
+                $q->where(function ($sub) use ($teacherId, $today) {
+                    $sub->where('teacher_id', $teacherId)
+                        ->orWhereHas('classroom.teachers', function ($ct) use ($teacherId, $today) {
+                            $ct->where('teachers.id', $teacherId)
+                                ->where('teachers.is_active', true)
+                                ->where('class_teachers.effective_from', '<=', $today)
+                                ->where(function ($pivot) use ($today) {
+                                    $pivot->whereNull('class_teachers.effective_until')
+                                          ->orWhere('class_teachers.effective_until', '>=', $today);
+                                });
+                        });
+                });
             })
             ->when($request->filled('teacher_id') && !$isTeacher, function ($q) use ($request) {
                 $q->where('teacher_id', $request->teacher_id);
@@ -118,8 +131,25 @@ class ClassScheduleController extends Controller
         $schedule = ClassSchedule::with(['classroom.programLevel.program', 'teacher.user'])->findOrFail($id);
 
         if ($isTeacher) {
-            $teacherId = Teacher::where('user_id', $user->id)->value('id');
-            if ($schedule->teacher_id !== $teacherId) {
+            $today = Carbon::today()->toDateString();
+            $teacher = Teacher::where('user_id', $user->id)->first();
+            $teacherId = ($teacher && $teacher->is_active) ? $teacher->id : null;
+
+            $hasAccess = false;
+            if ($teacherId) {
+                $hasAccess = ($schedule->teacher_id === $teacherId)
+                    || ($schedule->classroom && $schedule->classroom->teachers()
+                        ->where('teachers.id', $teacherId)
+                        ->where('teachers.is_active', true)
+                        ->where('class_teachers.effective_from', '<=', $today)
+                        ->where(function ($pivot) use ($today) {
+                            $pivot->whereNull('class_teachers.effective_until')
+                                  ->orWhere('class_teachers.effective_until', '>=', $today);
+                        })
+                        ->exists());
+            }
+
+            if (!$hasAccess) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Anda tidak memiliki akses ke data jadwal ini.'

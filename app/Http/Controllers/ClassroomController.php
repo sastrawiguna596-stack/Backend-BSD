@@ -89,6 +89,9 @@ class ClassroomController extends Controller
         $classroom = Classroom::with([
                 'programLevel.program',
                 'teachers.user',
+                'classSchedules' => function ($q) {
+                    $q->where('is_active', true);
+                },
                 'enrollments' => function ($q) {
                     $q->where('status', 'active')->with('student');
                 },

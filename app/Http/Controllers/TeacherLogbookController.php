@@ -139,10 +139,17 @@ class TeacherLogbookController extends Controller
 
         if ($role === 'teacher') {
             $myTeacherId = Teacher::where('user_id', $user->id)->value('id');
-            if ($logbook->teacher_id !== $myTeacherId) {
+            if (!$myTeacherId || $logbook->teacher_id !== $myTeacherId) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Anda tidak memiliki akses untuk mengubah logbook ini.',
+                ], 403);
+            }
+
+            if ($logbook->status === 'verified') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Logbook yang sudah diverifikasi tidak dapat diubah.',
                 ], 403);
             }
         }
@@ -155,6 +162,13 @@ class TeacherLogbookController extends Controller
             'notes'            => 'nullable|string',
             'status'           => 'sometimes|string|in:draft,submitted,verified',
         ]);
+
+        if ($role === 'teacher' && isset($validated['status']) && $validated['status'] === 'verified') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Hanya Owner atau Admin yang dapat memverifikasi logbook.',
+            ], 403);
+        }
 
         $logbook->update($validated);
 
@@ -183,10 +197,17 @@ class TeacherLogbookController extends Controller
 
         if ($role === 'teacher') {
             $myTeacherId = Teacher::where('user_id', $user->id)->value('id');
-            if ($logbook->teacher_id !== $myTeacherId) {
+            if (!$myTeacherId || $logbook->teacher_id !== $myTeacherId) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Anda tidak memiliki akses untuk menghapus logbook ini.',
+                ], 403);
+            }
+
+            if ($logbook->status === 'verified') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Logbook yang sudah diverifikasi tidak dapat dihapus.',
                 ], 403);
             }
         }

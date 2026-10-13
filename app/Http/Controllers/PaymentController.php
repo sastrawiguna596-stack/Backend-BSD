@@ -274,42 +274,61 @@ class PaymentController extends Controller
             return response()->json(['success' => false, 'message' => 'Payment record not found.'], 404);
         }
 
-        DB::transaction(function () use ($payment, $status) {
+        return DB::transaction(function () use ($payment, $status) {
+            $lockedPayment = Payment::with('paymentPlan')->lockForUpdate()->find($payment->id);
+            if (!$lockedPayment) {
+                return response()->json(['success' => false, 'message' => 'Payment record not found.'], 404);
+            }
+
+            if ($lockedPayment->payment_status === 'paid') {
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Payment already settled.',
+                ]);
+            }
+
             if (in_array($status, ['success', 'settled', 'paid', 'berhasil', 'capture'])) {
-                $payment->update([
+                $lockedPayment->update([
                     'payment_status' => 'paid',
                     'paid_at'        => Carbon::now(),
                 ]);
 
                 // Update tagihan terkait di payment_plans menjadi lunas
-                if ($payment->notes && str_contains(strtolower($payment->notes), 'pelunasan')) {
-                    PaymentPlan::where('enrollment_id', $payment->enrollment_id)
+                if ($lockedPayment->notes && str_contains(strtolower($lockedPayment->notes), 'pelunasan')) {
+                    PaymentPlan::where('enrollment_id', $lockedPayment->enrollment_id)
                         ->where('is_paid', false)
-                        ->update([
+                        ->lockForUpdate()
+                        ->get()
+                        ->each(function ($plan) {
+                            $plan->update([
+                                'is_paid' => true,
+                                'status'  => 'paid',
+                            ]);
+                        });
+                } elseif ($lockedPayment->payment_plan_id) {
+                    $plan = PaymentPlan::lockForUpdate()->find($lockedPayment->payment_plan_id);
+                    if ($plan) {
+                        $plan->update([
                             'is_paid' => true,
                             'status'  => 'paid',
                         ]);
-                } elseif ($payment->paymentPlan) {
-                    $payment->paymentPlan->update([
-                        'is_paid' => true,
-                        'status'  => 'paid',
-                    ]);
+                    }
                 }
             } elseif (in_array($status, ['expired', 'expire', 'kadaluarsa'])) {
-                $payment->update([
+                $lockedPayment->update([
                     'payment_status' => 'expired',
                 ]);
             } elseif (in_array($status, ['failed', 'gagal', 'deny', 'cancel', 'batal'])) {
-                $payment->update([
+                $lockedPayment->update([
                     'payment_status' => 'failed',
                 ]);
             }
-        });
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Webhook notification processed successfully.',
-        ]);
+            return response()->json([
+                'success' => true,
+                'message' => 'Webhook notification processed successfully.',
+            ]);
+        });
     }
 
     /**

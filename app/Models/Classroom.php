@@ -29,6 +29,11 @@ class Classroom extends Model
         return $this->hasMany(Enrollment::class);
     }
 
+    public function classSchedules()
+    {
+        return $this->hasMany(ClassSchedule::class);
+    }
+
     /**
      * Hitung jumlah enrollment aktif di kelas ini.
      */

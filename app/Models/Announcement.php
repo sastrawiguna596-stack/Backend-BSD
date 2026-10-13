@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -14,7 +15,16 @@ class Announcement extends Model
 
     protected $casts = [
         'published_at' => 'datetime',
+        'expires_at'   => 'datetime',
     ];
+
+    public function scopeActive($query)
+    {
+        return $query->where(function ($sub) {
+            $sub->whereNull('expires_at')
+                ->orWhere('expires_at', '>=', Carbon::now());
+        });
+    }
 
     public function getPosterUrlAttribute($value)
     {

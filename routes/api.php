@@ -138,6 +138,10 @@ Route::prefix('v1')->group(function () {
             Route::put('enrollments/{enrollment}',            [EnrollmentController::class, 'update']);
             Route::patch('enrollments/{enrollment}',          [EnrollmentController::class, 'update']);
             Route::delete('enrollments/{enrollment}',         [EnrollmentController::class, 'destroy']);
+            Route::post('enrollments/{id}/approve',           [EnrollmentController::class, 'approve']);
+            Route::patch('enrollments/{id}/approve',          [EnrollmentController::class, 'approve']);
+            Route::post('enrollments/{id}/reject',            [EnrollmentController::class, 'reject']);
+            Route::patch('enrollments/{id}/reject',           [EnrollmentController::class, 'reject']);
 
             // --- Jadwal Kelas & Generate Sesi (Write: Admin / Owner Only) ---
             Route::post('class-schedules/{class_schedule}/generate-sessions', [ClassScheduleController::class, 'generateSessions']);

@@ -35,10 +35,13 @@ class AnnouncementController extends Controller
                     $sub->where('title', 'like', '%' . $request->search . '%')
                         ->orWhere('description', 'like', '%' . $request->search . '%');
                 });
+            })
+            ->when($request->boolean('active_only'), function ($q) {
+                $q->active();
             });
         } else {
-            // Publik / Siswa / Ortu / Guru: hanya yang sudah published
-            $query->where('status', 'published');
+            // Publik / Siswa / Ortu / Guru: hanya yang sudah published dan belum kedaluwarsa
+            $query->where('status', 'published')->active();
 
             if ($user) {
                 $role = $user->role;
@@ -74,6 +77,19 @@ class AnnouncementController extends Controller
             'description'  => 'required|string',
             'status'       => 'nullable|string|in:draft,published,archived',
             'poster'       => 'nullable|image|mimes:jpeg,png,jpg,webp|max:5120', // Maks 5MB
+            'expires_at'   => [
+                'nullable',
+                'date',
+                function ($attribute, $value, $fail) use ($request) {
+                    $status = $request->input('status', 'published');
+                    if ($status === 'published' && !empty($value)) {
+                        $expiry = $this->parseExpiresAt($value);
+                        if ($expiry && $expiry->isPast()) {
+                            $fail('Tanggal kedaluwarsa untuk pengumuman yang dipublikasikan tidak boleh sudah lewat.');
+                        }
+                    }
+                },
+            ],
             'target_roles' => 'nullable|array',
             'target_roles.*' => 'string|in:student,parent,teacher,admin,owner,all',
         ]);
@@ -89,15 +105,18 @@ class AnnouncementController extends Controller
         }
 
         return DB::transaction(function () use ($validated, $user, $status, $publishedAt, $posterUrl) {
-            $announcement = Announcement::create([
+            $payload = [
                 'title'        => $validated['title'],
                 'description'  => $validated['description'],
                 'poster_url'   => $posterUrl,
                 'status'       => $status,
                 'published_at' => $publishedAt,
+                'expires_at'   => $this->parseExpiresAt($validated['expires_at'] ?? null),
                 'created_by'   => $user?->id,
                 'updated_by'   => $user?->id,
-            ]);
+            ];
+
+            $announcement = Announcement::create($payload);
 
             // Simpan target peran (default 'all' jika kosong)
             $targetRoles = !empty($validated['target_roles']) ? $validated['target_roles'] : ['all'];
@@ -145,9 +164,35 @@ class AnnouncementController extends Controller
             'description'  => 'sometimes|required|string',
             'status'       => 'nullable|string|in:draft,published,archived',
             'poster'       => 'nullable|image|mimes:jpeg,png,jpg,webp|max:5120',
+            'expires_at'   => [
+                'nullable',
+                'date',
+                function ($attribute, $value, $fail) use ($request, $announcement) {
+                    $newStatus = $request->input('status', $announcement->status);
+                    if ($newStatus === 'published' && !empty($value)) {
+                        $expiry = $this->parseExpiresAt($value);
+                        if ($expiry && $expiry->isPast()) {
+                            $fail('Tanggal kedaluwarsa untuk pengumuman yang dipublikasikan tidak boleh sudah lewat.');
+                        }
+                    }
+                },
+            ],
             'target_roles' => 'nullable|array',
             'target_roles.*' => 'string|in:student,parent,teacher,admin,owner,all',
         ]);
+
+        if ($request->has('status') && $request->input('status') === 'published') {
+            $effectiveExpiry = $request->has('expires_at')
+                ? $this->parseExpiresAt($validated['expires_at'] ?? null)
+                : $announcement->expires_at;
+
+            if ($effectiveExpiry && $effectiveExpiry->isPast()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Tidak dapat mempublikasikan pengumuman dengan tanggal kedaluwarsa yang sudah lewat.'
+                ], 422);
+            }
+        }
 
         $user = $request->user();
 
@@ -162,6 +207,10 @@ class AnnouncementController extends Controller
                 $dataToUpdate['description'] = $validated['description'];
             }
 
+            if ($request->has('expires_at')) {
+                $dataToUpdate['expires_at'] = $this->parseExpiresAt($validated['expires_at'] ?? null);
+            }
+
             if ($request->has('status')) {
                 $newStatus = $validated['status'];
                 $dataToUpdate['status'] = $newStatus;
@@ -173,23 +222,20 @@ class AnnouncementController extends Controller
             }
 
             if ($request->hasFile('poster')) {
-                // Hapus file lama jika ada
-                if ($announcement->poster_url) {
-                    $oldPath = str_replace('/storage/', '', $announcement->poster_url);
-                    Storage::disk('public')->delete($oldPath);
-                }
-
+                $oldPoster = $announcement->getRawOriginal('poster_url');
                 $path = $request->file('poster')->store('announcements', 'public');
                 $dataToUpdate['poster_url'] = Storage::url($path);
+                $this->deletePosterFile($oldPoster, $announcement->id);
             }
 
             $dataToUpdate['updated_by'] = $user?->id;
             $announcement->update($dataToUpdate);
 
-            // Update target peran jika diberikan
-            if ($request->has('target_roles') && is_array($validated['target_roles'])) {
+            // Update target peran jika field target_roles dikirimkan
+            if ($request->has('target_roles')) {
+                $targetRoles = !empty($validated['target_roles']) ? $validated['target_roles'] : ['all'];
                 $announcement->targets()->delete();
-                foreach ($validated['target_roles'] as $role) {
+                foreach ($targetRoles as $role) {
                     AnnouncementTarget::create([
                         'announcement_id' => $announcement->id,
                         'target_role'     => $role,
@@ -212,11 +258,8 @@ class AnnouncementController extends Controller
     {
         $announcement = Announcement::findOrFail($id);
 
-        // Hapus poster fisik di storage jika ada
-        if ($announcement->poster_url) {
-            $oldPath = str_replace('/storage/', '', $announcement->poster_url);
-            Storage::disk('public')->delete($oldPath);
-        }
+        $oldPoster = $announcement->getRawOriginal('poster_url');
+        $this->deletePosterFile($oldPoster, $announcement->id);
 
         $announcement->delete();
 
@@ -224,5 +267,59 @@ class AnnouncementController extends Controller
             'success' => true,
             'message' => 'Pengumuman berhasil dihapus.',
         ]);
+    }
+
+    /**
+     * Parse input waktu kedaluwarsa:
+     * - Null / kosong -> null
+     * - Format tanggal saja (YYYY-MM-DD) -> berlaku sampai akhir hari (endOfDay)
+     * - Format datetime dengan jam spesifik -> pertahankan waktu spesifik
+     */
+    protected function parseExpiresAt(?string $value): ?Carbon
+    {
+        if (empty($value)) {
+            return null;
+        }
+
+        $raw = trim($value);
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $raw)) {
+            return Carbon::parse($raw)->endOfDay();
+        }
+
+        return Carbon::parse($raw);
+    }
+
+    /**
+     * Hapus file poster fisik dari disk public menggunakan path relatif yang benar.
+     * Tidak menghapus jika file masih digunakan oleh pengumuman lain.
+     */
+    protected function deletePosterFile(?string $rawPosterUrl, string $currentAnnouncementId): void
+    {
+        if (empty($rawPosterUrl)) {
+            return;
+        }
+
+        $path = parse_url($rawPosterUrl, PHP_URL_PATH) ?? $rawPosterUrl;
+        $path = ltrim($path, '/');
+        if (str_starts_with($path, 'storage/')) {
+            $path = substr($path, strlen('storage/'));
+        }
+
+        if (empty($path)) {
+            return;
+        }
+
+        $isUsedByOther = Announcement::where('id', '!=', $currentAnnouncementId)
+            ->where(function ($q) use ($rawPosterUrl, $path) {
+                $q->where('poster_url', $rawPosterUrl)
+                  ->orWhere('poster_url', $path)
+                  ->orWhere('poster_url', '/storage/' . $path)
+                  ->orWhere('poster_url', 'storage/' . $path);
+            })
+            ->exists();
+
+        if (!$isUsedByOther && Storage::disk('public')->exists($path)) {
+            Storage::disk('public')->delete($path);
+        }
     }
 }

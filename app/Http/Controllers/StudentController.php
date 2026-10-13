@@ -34,7 +34,7 @@ class StudentController extends Controller
             $teacherId = Teacher::where('user_id', $user->id)->value('id') ?: '00000000-0000-0000-0000-000000000000';
         }
 
-        $query = Student::with('parents.user')
+        $query = Student::with(['parents.user', 'enrollments.classroom', 'enrollments.programLevel'])
             ->when($isParent, function ($q) use ($user) {
                 $q->whereHas('parents', function ($p) use ($user) {
                     $p->where('user_id', $user->id);
@@ -133,9 +133,35 @@ class StudentController extends Controller
     /**
      * Detail satu siswa beserta data orang tua.
      */
-    public function show(string $id)
+    public function show(Request $request, string $id)
     {
         $student = Student::with('parents.user')->findOrFail($id);
+        $user = $request->user();
+
+        if ($user && strtolower($user->role) === 'parent') {
+            $isAssociated = $student->parents()->where('user_id', $user->id)->exists();
+            if (!$isAssociated) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Anda tidak memiliki hak akses ke data siswa ini.',
+                ], 403);
+            }
+        }
+
+        if ($user && strtolower($user->role) === 'teacher') {
+            $teacherId = Teacher::where('user_id', $user->id)->value('id');
+            $teachesStudent = $student->enrollments()
+                ->whereHas('classroom.teachers', function ($t) use ($teacherId) {
+                    $t->where('teachers.id', $teacherId);
+                })->exists();
+
+            if (!$teachesStudent) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Anda tidak memiliki hak akses ke data siswa ini.',
+                ], 403);
+            }
+        }
 
         return response()->json([
             'success' => true,

@@ -98,6 +98,25 @@ class ClassSessionController extends Controller
         $startTime = Carbon::parse($validated['start_time'])->format('H:i:s');
         $endTime = Carbon::parse($validated['end_time'])->format('H:i:s');
 
+        if ($isTeacher) {
+            $dayOfWeek = Carbon::parse($validated['session_date'])->format('l');
+            $scheduleMatches = \App\Models\ClassSchedule::where('classroom_id', $validated['classroom_id'])
+                ->where('day_of_week', $dayOfWeek)
+                ->where('is_active', true)
+                ->exists();
+
+            if (!$scheduleMatches && !($validated['is_rescheduled'] ?? false)) {
+                $days = \App\Models\ClassSchedule::where('classroom_id', $validated['classroom_id'])
+                    ->where('is_active', true)
+                    ->pluck('day_of_week')
+                    ->implode(', ');
+                return response()->json([
+                    'success' => false,
+                    'message' => "Tanggal {$validated['session_date']} ({$dayOfWeek}) bukan hari jadwal reguler kelas ini. Jadwal kelas: " . ($days ?: 'Belum diatur') . "."
+                ], 422);
+            }
+        }
+
         if (ClassSession::hasConflict(
             $validated['classroom_id'],
             $validated['teacher_id'],

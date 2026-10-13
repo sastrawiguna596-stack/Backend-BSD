@@ -63,6 +63,24 @@ class AssessmentController extends Controller
             ], 403);
         }
 
+        if (!$request->filled('enrollment_id') && $request->filled('student_id')) {
+            $enrollment = Enrollment::where('student_id', $request->student_id)
+                ->where('status', 'active')
+                ->latest()
+                ->first();
+            if ($enrollment) {
+                $request->merge([
+                    'enrollment_id'    => $enrollment->id,
+                    'program_level_id' => $request->program_level_id ?? $enrollment->program_level_id,
+                ]);
+            }
+        } elseif ($request->filled('enrollment_id') && !$request->filled('program_level_id')) {
+            $enrollment = Enrollment::find($request->enrollment_id);
+            if ($enrollment) {
+                $request->merge(['program_level_id' => $enrollment->program_level_id]);
+            }
+        }
+
         $validated = $request->validate([
             'student_id'       => 'required|uuid|exists:students,id',
             'enrollment_id'    => 'required|uuid|exists:enrollments,id',

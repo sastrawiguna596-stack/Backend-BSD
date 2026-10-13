@@ -467,4 +467,47 @@ class EnrollmentController extends Controller
             'message' => 'Enrollment berhasil dinonaktifkan. Siswa telah dikeluarkan dari kelas.',
         ]);
     }
+
+    /**
+     * Setujui pendaftaran (enrollment).
+     */
+    public function approve(Request $request, string $id)
+    {
+        $enrollment = Enrollment::with(['student', 'classroom', 'program', 'paymentPlans'])->findOrFail($id);
+
+        $enrollment->update([
+            'status' => 'active',
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Pendaftaran siswa berhasil disetujui.',
+            'data'    => $enrollment->fresh(['student', 'classroom', 'program', 'paymentPlans']),
+        ]);
+    }
+
+    /**
+     * Tolak pendaftaran (enrollment).
+     */
+    public function reject(Request $request, string $id)
+    {
+        $enrollment = Enrollment::with(['student', 'classroom', 'program', 'paymentPlans'])->findOrFail($id);
+
+        DB::transaction(function () use ($enrollment) {
+            $enrollment->update([
+                'status' => 'rejected',
+            ]);
+
+            // Batalkan tagihan yang belum dibayar
+            PaymentPlan::where('enrollment_id', $enrollment->id)
+                ->where('is_paid', false)
+                ->update(['status' => 'cancelled']);
+        });
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Pendaftaran siswa berhasil ditolak.',
+            'data'    => $enrollment->fresh(['student', 'classroom', 'program', 'paymentPlans']),
+        ]);
+    }
 }
