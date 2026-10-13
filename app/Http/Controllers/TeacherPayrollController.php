@@ -4,11 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Models\Teacher;
 use App\Models\TeacherPayroll;
-use App\Models\TeacherLogbook;
-use App\Models\TeacherHourlyRate;
-use App\Models\TeacherBonus;
+use App\Models\ClassSession;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 class TeacherPayrollController extends Controller
@@ -73,83 +70,119 @@ class TeacherPayrollController extends Controller
     }
 
     /**
-     * Generate payroll for a teacher based on teaching logs and active rates.
+     * Generate payroll otomatis untuk seorang guru.
+     * Honor dihitung berdasarkan satuan 30 menit mengajar.
+     *
+     * POST /api/v1/teacher-payrolls/generate
+     * Body: { teacher_id, period_start, period_end }
      */
     public function generatePayroll(Request $request)
     {
-        $validated = $request->validate([
-            'teacher_id' => 'required|uuid|exists:teachers,id',
+        $request->validate([
+            'teacher_id'   => 'required|exists:teachers,id',
             'period_start' => 'required|date',
-            'period_end' => 'required|date|after_or_equal:period_start'
+            'period_end'   => 'required|date|after_or_equal:period_start',
         ]);
 
-        $teacherId = $validated['teacher_id'];
-        $periodStart = $validated['period_start'];
-        $periodEnd = $validated['period_end'];
+        $teacherId   = $request->teacher_id;
+        $periodStart = $request->period_start;
+        $periodEnd   = $request->period_end;
 
-        try {
-            DB::beginTransaction();
+        // ── 1. Ambil semua sesi mengajar guru yang selesai dalam periode ────
+        // Sesi dihitung jika: status = 'completed' ATAU ada logbook
+        // Dan bukan hari libur
+        $sessions = ClassSession::where('teacher_id', $teacherId)
+            ->where('is_holiday', false)
+            ->whereBetween('session_date', [$periodStart, $periodEnd])
+            ->where(function ($query) {
+                $query->where('status', 'completed')
+                      ->orWhereHas('teacherLogbook');
+            })
+            ->get();
 
-            // 1. Get total teaching minutes from verified/submitted logbooks
-            $totalMinutes = TeacherLogbook::where('teacher_id', $teacherId)
-                ->whereIn('status', ['submitted', 'verified'])
-                ->whereDate('check_in', '>=', $periodStart)
-                ->whereDate('check_in', '<=', $periodEnd)
-                ->sum('teaching_minutes');
-
-            $teachingHours = $totalMinutes / 60;
-
-            // 2. Get the active hourly rate for the period
-            // Assuming the rate is effective during the period end
-            $activeRate = TeacherHourlyRate::where('teacher_id', $teacherId)
-                ->where('effective_from', '<=', $periodEnd)
-                ->where(function ($query) use ($periodEnd) {
-                    $query->whereNull('effective_until')
-                          ->orWhere('effective_until', '>=', $periodEnd);
-                })
-                ->orderBy('effective_from', 'desc')
-                ->first();
-
-            $hourlyRate = $activeRate ? $activeRate->hourly_rate : 0;
-            $baseAmount = $teachingHours * $hourlyRate;
-
-            // 3. Get total bonuses in the period
-            $bonusAmount = TeacherBonus::where('teacher_id', $teacherId)
-                ->whereDate('bonus_date', '>=', $periodStart)
-                ->whereDate('bonus_date', '<=', $periodEnd)
-                ->sum('amount');
-
-            $totalAmount = $baseAmount + $bonusAmount;
-
-            // 4. Create Payroll
-            $payroll = TeacherPayroll::create([
-                'teacher_id' => $teacherId,
-                'period_start' => $periodStart,
-                'period_end' => $periodEnd,
-                'teaching_hours' => $teachingHours,
-                'base_amount' => $baseAmount,
-                'bonus_amount' => $bonusAmount,
-                'total_amount' => $totalAmount,
-                'status' => 'draft',
-                'created_by' => $request->user() ? $request->user()->id : null
-            ]);
-
-            DB::commit();
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Payroll berhasil di-generate.',
-                'data' => $payroll
-            ], 201);
-
-        } catch (\Exception $e) {
-            DB::rollBack();
-            return response()->json([
-                'success' => false,
-                'message' => 'Gagal meng-generate payroll.',
-                'error' => $e->getMessage()
-            ], 500);
+        // ── 2. Hitung total unit 30 menit dari semua sesi ───────────────────
+        $totalUnits = 0;
+        foreach ($sessions as $session) {
+            $totalUnits += self::hitungUnit30Menit(
+                $session->start_time,
+                $session->end_time
+            );
         }
+
+        // ── 3. Konversi ke jam desimal dan hitung honor ─────────────────────
+        // teaching_hours disimpan dalam JAM (kelipatan 0.5)
+        // Contoh: 3 unit = 1.5 jam
+        $teachingHours   = $totalUnits * 0.5;
+        $tarifPer30Menit = 37500; // Rp 37.500 per 30 menit
+        $baseAmount      = $totalUnits * $tarifPer30Menit;
+        $bonusAmount     = 0;
+        $totalAmount     = $baseAmount + $bonusAmount;
+
+        // ── 4. Buat atau update payroll ─────────────────────────────────────
+        $existing = TeacherPayroll::where('teacher_id', $teacherId)
+            ->where('period_start', $periodStart)
+            ->where('period_end', $periodEnd)
+            ->first();
+
+        if ($existing) {
+            $existing->update([
+                'teaching_hours' => $teachingHours,
+                'base_amount'    => $baseAmount,
+                'total_amount'   => $totalAmount,
+            ]);
+            $payroll = $existing->fresh(['teacher.user']);
+        } else {
+            $payroll = TeacherPayroll::create([
+                'teacher_id'     => $teacherId,
+                'period_start'   => $periodStart,
+                'period_end'     => $periodEnd,
+                'teaching_hours' => $teachingHours,
+                'base_amount'    => $baseAmount,
+                'bonus_amount'   => $bonusAmount,
+                'total_amount'   => $totalAmount,
+                'status'         => 'pending',
+                'created_by'     => $request->user()?->id,
+            ]);
+            $payroll->load('teacher.user');
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Payroll berhasil dibuat.',
+            'data'    => $payroll,
+        ], 201);
+    }
+
+    /**
+     * Helper: hitung jumlah unit 30 menit dari jam mulai dan jam selesai.
+     *
+     * Contoh:
+     *   08:00 – 08:30  → 1 unit  (= 0.5 jam)
+     *   08:00 – 09:00  → 2 unit  (= 1.0 jam)
+     *   08:00 – 09:30  → 3 unit  (= 1.5 jam)
+     *   null  / null   → 1 unit  (default)
+     *
+     * @param  string|null $startTime  Format "HH:MM" atau "HH:MM:SS"
+     * @param  string|null $endTime    Format "HH:MM" atau "HH:MM:SS"
+     * @return int  Jumlah unit 30 menit (minimal 1)
+     */
+    protected static function hitungUnit30Menit(?string $startTime, ?string $endTime): int
+    {
+        if (!$startTime || !$endTime) {
+            return 1; // default 1 unit jika tidak ada data waktu
+        }
+
+        [$sh, $sm] = array_map('intval', explode(':', $startTime));
+        [$eh, $em] = array_map('intval', explode(':', $endTime));
+
+        $diffMinutes = ($eh * 60 + $em) - ($sh * 60 + $sm);
+
+        if ($diffMinutes <= 0) {
+            return 1; // waktu tidak valid → fallback 1 unit
+        }
+
+        // Bulatkan ke unit 30 menit terdekat (minimal 1 unit)
+        return max(1, (int) round($diffMinutes / 30));
     }
 
     public function store(Request $request)
@@ -200,33 +233,31 @@ class TeacherPayrollController extends Controller
     {
         $payroll = TeacherPayroll::findOrFail($id);
 
-        $validated = $request->validate([
-            'status'         => 'sometimes|string|in:draft,pending,approved,paid,cancelled,partial',
-            'teaching_hours' => 'sometimes|numeric|min:0',
-            'base_amount'    => 'sometimes|numeric|min:0',
+        $request->validate([
+            'status'         => 'sometimes|in:pending,paid,partial,draft,approved,cancelled',
             'bonus_amount'   => 'sometimes|numeric|min:0',
-            'total_amount'   => 'sometimes|numeric|min:0',
-            'notes'          => 'nullable|string',
+            'teaching_hours' => 'sometimes|numeric|min:0', // numeric, bukan integer
+            'notes'          => 'sometimes|string|nullable',
         ]);
 
-        if (isset($validated['bonus_amount']) || isset($validated['base_amount'])) {
-            $base = $validated['base_amount'] ?? $payroll->base_amount;
-            $bonus = $validated['bonus_amount'] ?? $payroll->bonus_amount;
-            if (!isset($validated['total_amount'])) {
-                $validated['total_amount'] = $base + $bonus;
-            }
+        $updateData = $request->only(['status', 'bonus_amount', 'teaching_hours', 'notes']);
+
+        // Jika notes dikirim tapi kolom belum ada di DB, abaikan
+        if (array_key_exists('notes', $updateData) && !Schema::hasColumn('teacher_payrolls', 'notes')) {
+            unset($updateData['notes']);
         }
 
-        if (array_key_exists('notes', $validated) && !Schema::hasColumn('teacher_payrolls', 'notes')) {
-            unset($validated['notes']);
+        // Jika bonus diubah, recalculate total_amount otomatis
+        if ($request->has('bonus_amount')) {
+            $updateData['total_amount'] = $payroll->base_amount + (float) $request->bonus_amount;
         }
 
-        $payroll->update($validated);
+        $payroll->update($updateData);
 
         return response()->json([
             'success' => true,
             'message' => 'Payroll berhasil diperbarui.',
-            'data'    => $payroll->fresh('teacher.user'),
+            'data'    => $payroll->fresh(['teacher.user']),
         ]);
     }
 
