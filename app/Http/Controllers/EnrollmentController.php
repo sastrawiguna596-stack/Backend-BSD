@@ -31,7 +31,7 @@ class EnrollmentController extends Controller
             $teacherId = Teacher::where('user_id', $user->id)->value('id') ?: '00000000-0000-0000-0000-000000000000';
         }
 
-        $query = Enrollment::with(['student', 'classroom', 'program', 'programLevel', 'paymentPlans'])
+        $query = Enrollment::with(['student', 'classroom.classSchedules.teacher.user', 'classroom.teachers.user', 'program', 'programLevel', 'paymentPlans'])
             ->when($isParent, function ($q) use ($user) {
                 $q->whereHas('student.parents', function ($p) use ($user) {
                     $p->where('user_id', $user->id);

@@ -26,7 +26,9 @@ class PaymentController extends Controller
     public function index(Request $request)
     {
         $query = Payment::with([
-            'paymentPlan',
+            'paymentPlan.enrollment.student',
+            'paymentPlan.enrollment.program',
+            'paymentPlan.enrollment.programLevel',
             'enrollment.student',
             'enrollment.program',
             'enrollment.programLevel',
@@ -152,7 +154,14 @@ class PaymentController extends Controller
                 'success' => true,
                 'message' => 'Menggunakan transaksi aktif yang belum kedaluwarsa.',
                 'data'    => [
-                    'payment' => $existingPayment->load(['paymentPlan', 'enrollment.student', 'enrollment.program']),
+                    'payment' => $existingPayment->load([
+                        'paymentPlan.enrollment.student',
+                        'paymentPlan.enrollment.program',
+                        'paymentPlan.enrollment.programLevel',
+                        'enrollment.student',
+                        'enrollment.program',
+                        'enrollment.programLevel',
+                    ]),
                     'instructions' => [
                         'method'          => $existingPayment->payment_method,
                         'method_name'     => $existingPayment->payment_channel,
@@ -223,7 +232,14 @@ class PaymentController extends Controller
             'success' => true,
             'message' => $gatewayResult['message'] ?? 'Berhasil membuat transaksi',
             'data'    => [
-                'payment' => $payment->load(['paymentPlan', 'enrollment.student', 'enrollment.program']),
+                'payment' => $payment->load([
+                    'paymentPlan.enrollment.student',
+                    'paymentPlan.enrollment.program',
+                    'paymentPlan.enrollment.programLevel',
+                    'enrollment.student',
+                    'enrollment.program',
+                    'enrollment.programLevel',
+                ]),
                 'instructions' => [
                     'method'          => $payment->payment_method,
                     'method_name'     => $gatewayResult['method_name'] ?? $payment->payment_channel,
